@@ -16,6 +16,8 @@ pub enum HlError {
         retry_after_ms: u64,
         message: String,
     },
+    #[error("Parse error: {0}")]
+    Parse(String),
 }
 
 impl HlError {

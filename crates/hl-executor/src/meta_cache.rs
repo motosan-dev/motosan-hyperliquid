@@ -21,10 +21,9 @@ impl AssetMetaCache {
         let meta = client
             .post_info(serde_json::json!({"type": "meta"}))
             .await?;
-        let universe = meta["universe"].as_array().ok_or_else(|| HlError::Api {
-            status: 0,
-            body: "meta response missing universe".into(),
-        })?;
+        let universe = meta["universe"]
+            .as_array()
+            .ok_or_else(|| HlError::Parse("meta response missing universe".into()))?;
 
         let mut coin_to_index = HashMap::new();
         let mut coin_to_sz_decimals = HashMap::new();

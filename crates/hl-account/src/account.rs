@@ -42,10 +42,7 @@ impl Account {
         let resp = self.client.post_info(payload).await?;
         resp.as_array()
             .cloned()
-            .ok_or_else(|| HlError::Api {
-                status: 0,
-                body: "expected array for vaultSummaries".into(),
-            })
+            .ok_or_else(|| HlError::Parse("expected array for vaultSummaries".into()))
     }
 
     /// Fetch details for a specific vault.
@@ -71,10 +68,7 @@ impl Account {
         let resp = self.client.post_info(payload).await?;
         resp.as_array()
             .cloned()
-            .ok_or_else(|| HlError::Api {
-                status: 0,
-                body: "expected array for extraAgents".into(),
-            })
+            .ok_or_else(|| HlError::Parse("expected array for extraAgents".into()))
     }
 }
 
@@ -158,10 +152,7 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
 /// Hyperliquid returns numeric fields as quoted strings.
 /// The `side` field is `"B"` (buy) or `"A"` (ask/sell).
 pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
-    let arr = resp.as_array().ok_or_else(|| HlError::Api {
-        status: 0,
-        body: "expected array for userFills".into(),
-    })?;
+    let arr = resp.as_array().ok_or_else(|| HlError::Parse("expected array for userFills".into()))?;
 
     let mut fills = Vec::with_capacity(arr.len());
 

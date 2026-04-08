@@ -61,11 +61,18 @@ impl MarketData {
     }
 
     /// Compute the mid-price for a coin from its current orderbook.
+    ///
+    /// Returns `Err` if either the bid or ask side of the book is empty.
     pub async fn mid_price(&self, coin: &str) -> Result<f64, HlError> {
         let book = self.orderbook(coin).await?;
-        let best_bid = book.bids.first().map(|(p, _)| *p).unwrap_or(0.0);
-        let best_ask = book.asks.first().map(|(p, _)| *p).unwrap_or(0.0);
-        Ok((best_bid + best_ask) / 2.0)
+        let best_bid = book.bids.first().map(|(p, _)| *p);
+        let best_ask = book.asks.first().map(|(p, _)| *p);
+        match (best_bid, best_ask) {
+            (Some(bid), Some(ask)) => Ok((bid + ask) / 2.0),
+            _ => Err(HlError::Parse(format!(
+                "empty orderbook for {coin}, cannot compute mid price"
+            ))),
+        }
     }
 }
 
@@ -82,12 +89,9 @@ fn parse_str_f64(val: Option<&serde_json::Value>) -> f64 {
     }
 }
 
-/// Convenience constructor for an `HlError::Api` parse error.
+/// Convenience constructor for a local parse error.
 fn parse_err(msg: impl Into<String>) -> HlError {
-    HlError::Api {
-        status: 0,
-        body: msg.into(),
-    }
+    HlError::Parse(msg.into())
 }
 
 /// Parse a `candleSnapshot` response into a `Vec<HlCandle>`.

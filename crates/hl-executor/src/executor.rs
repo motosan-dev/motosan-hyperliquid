@@ -103,16 +103,15 @@ fn parse_order_response(
                 0.0,            // Resting order has zero fill
             ))
         } else {
-            Err(HlError::Api {
-                status: 0,
-                body: format!("unrecognized order status format: {}", entry),
-            })
+            Err(HlError::Parse(format!(
+                "unrecognized order status format: {}",
+                entry
+            )))
         }
     } else {
-        Err(HlError::Api {
-            status: 0,
-            body: "exchange returned ok but statuses array is empty".into(),
-        })
+        Err(HlError::Parse(
+            "exchange returned ok but statuses array is empty".into(),
+        ))
     }
 }
 
@@ -229,7 +228,7 @@ impl OrderExecutor {
 
         if api_status != "ok" {
             return Err(HlError::Api {
-                status: 0,
+                status: 400,
                 body: format!("Exchange rejected order: {}", result),
             });
         }
@@ -300,12 +299,12 @@ impl OrderExecutor {
         size: f64,
         trigger_price: f64,
         tpsl: &str,
+        vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
         let coin = normalize_symbol(symbol);
-        let asset_idx = self.meta_cache.asset_index(&coin).ok_or_else(|| HlError::Api {
-            status: 0,
-            body: format!("Asset '{}' not found in exchange universe", symbol),
-        })?;
+        let asset_idx = self.meta_cache.asset_index(&coin).ok_or_else(|| HlError::Parse(
+            format!("Asset '{}' not found in exchange universe", symbol),
+        ))?;
 
         let is_buy = side == "buy";
         let nonce = next_nonce();
@@ -345,12 +344,12 @@ impl OrderExecutor {
             &action,
             nonce,
             self.client.is_mainnet(),
-            None,
+            vault,
         )?;
 
         let result = self
             .client
-            .post_action(action, &signature, nonce, None)
+            .post_action(action, &signature, nonce, vault)
             .await?;
 
         let api_status = result
@@ -360,7 +359,7 @@ impl OrderExecutor {
 
         if api_status != "ok" {
             return Err(HlError::Api {
-                status: 0,
+                status: 400,
                 body: format!("Trigger order rejected: {}", result),
             });
         }
