@@ -2,5 +2,13 @@
 name = "hl-account"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+description = "Hyperliquid account state — positions, fills, vaults, agent approvals"
 
 [dependencies]
+hl-types.workspace = true
+hl-client.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing = "0.1"

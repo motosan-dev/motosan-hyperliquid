@@ -34,6 +34,8 @@ pub struct HlFill {
     pub timestamp: u64,
     /// Fee paid.
     pub fee: f64,
+    /// Realized PnL from closing a position (0.0 if this fill opened a position).
+    pub closed_pnl: f64,
 }
 
 /// Snapshot of an account's state.
