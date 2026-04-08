@@ -2,5 +2,17 @@
 name = "hl-executor"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+description = "Hyperliquid order execution — place/cancel orders, trigger orders, position reconciliation"
 
 [dependencies]
+hl-types.workspace = true
+hl-signing.workspace = true
+hl-client.workspace = true
+hl-account.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["time"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+chrono.workspace = true
