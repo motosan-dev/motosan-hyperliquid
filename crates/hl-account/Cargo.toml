@@ -1,0 +1,6 @@
+[package]
+name = "hl-account"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
