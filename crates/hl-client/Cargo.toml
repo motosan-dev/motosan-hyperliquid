@@ -7,7 +7,7 @@ description = "Hyperliquid REST and WebSocket client with retry and rate-limit h
 
 [features]
 default = []
-ws = ["tokio-tungstenite", "futures-util", "rand"]
+ws = ["tokio-tungstenite", "tokio-util", "futures-util", "rand"]
 live-test = []
 
 [dependencies]
@@ -20,6 +20,7 @@ tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 rand = { version = "0.8", optional = true }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
+tokio-util = { version = "0.7", optional = true }
 futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
