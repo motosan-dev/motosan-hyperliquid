@@ -241,9 +241,8 @@ impl OrderExecutor {
             .unwrap_or("unknown");
 
         if api_status != "ok" {
-            return Err(HlError::Api {
-                status: 400,
-                body: format!("Exchange rejected order: {}", result),
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected order: {}", result),
             });
         }
 
@@ -372,9 +371,8 @@ impl OrderExecutor {
             .unwrap_or("unknown");
 
         if api_status != "ok" {
-            return Err(HlError::Api {
-                status: 400,
-                body: format!("Trigger order rejected: {}", result),
+            return Err(HlError::Rejected {
+                reason: format!("Trigger order rejected: {}", result),
             });
         }
 

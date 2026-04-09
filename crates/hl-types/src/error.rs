@@ -7,8 +7,14 @@ pub enum HlError {
     Serialization(String),
     #[error("HTTP error: {0}")]
     Http(String),
+    #[error("Timeout: {0}")]
+    Timeout(String),
+    #[error("WebSocket error: {0}")]
+    WebSocket(String),
     #[error("API error (HTTP {status}): {body}")]
     Api { status: u16, body: String },
+    #[error("Order rejected: {reason}")]
+    Rejected { reason: String },
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
     #[error("Rate limited (429): retry after {retry_after_ms}ms")]
@@ -25,6 +31,8 @@ impl HlError {
     pub fn is_retryable(&self) -> bool {
         match self {
             HlError::Http(_) => true,
+            HlError::Timeout(_) => true,
+            HlError::WebSocket(_) => true,
             HlError::RateLimited { .. } => true,
             HlError::Api { status, .. } => {
                 // Retryable if server error (5xx)
@@ -100,6 +108,24 @@ mod tests {
     }
 
     #[test]
+    fn is_retryable_timeout() {
+        assert!(HlError::Timeout("request timed out".into()).is_retryable());
+    }
+
+    #[test]
+    fn is_retryable_websocket() {
+        assert!(HlError::WebSocket("connection failed".into()).is_retryable());
+    }
+
+    #[test]
+    fn not_retryable_rejected() {
+        assert!(!HlError::Rejected {
+            reason: "order rejected".into()
+        }
+        .is_retryable());
+    }
+
+    #[test]
     fn not_retryable_signing() {
         assert!(!HlError::Signing("key error".into()).is_retryable());
     }
@@ -131,6 +157,8 @@ mod tests {
     #[test]
     fn retry_after_ms_none_for_other_errors() {
         assert_eq!(HlError::Http("x".into()).retry_after_ms(), None);
+        assert_eq!(HlError::Timeout("x".into()).retry_after_ms(), None);
+        assert_eq!(HlError::WebSocket("x".into()).retry_after_ms(), None);
         assert_eq!(HlError::Signing("x".into()).retry_after_ms(), None);
         assert_eq!(HlError::Parse("x".into()).retry_after_ms(), None);
         assert_eq!(
@@ -139,6 +167,10 @@ mod tests {
                 body: "x".into()
             }
             .retry_after_ms(),
+            None
+        );
+        assert_eq!(
+            HlError::Rejected { reason: "x".into() }.retry_after_ms(),
             None
         );
     }
@@ -159,5 +191,16 @@ mod tests {
             message: "slow".into(),
         };
         assert!(format!("{err}").contains("2000ms"));
+
+        let err = HlError::Timeout("request timed out".into());
+        assert_eq!(format!("{err}"), "Timeout: request timed out");
+
+        let err = HlError::WebSocket("connection failed".into());
+        assert_eq!(format!("{err}"), "WebSocket error: connection failed");
+
+        let err = HlError::Rejected {
+            reason: "insufficient margin".into(),
+        };
+        assert_eq!(format!("{err}"), "Order rejected: insufficient margin");
     }
 }

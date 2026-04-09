@@ -218,7 +218,13 @@ impl HyperliquidClient {
             .json(payload)
             .send()
             .await
-            .map_err(|e| HlError::Http(e.to_string()))?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    HlError::Timeout(e.to_string())
+                } else {
+                    HlError::Http(e.to_string())
+                }
+            })?;
 
         let status = response.status();
 
