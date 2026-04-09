@@ -66,3 +66,63 @@ impl Default for TimeoutConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_values() {
+        let config = RetryConfig::default();
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.base_delay_ms, 500);
+        assert_eq!(config.backoff_factor, 2);
+    }
+
+    #[test]
+    fn delay_for_attempt_zero() {
+        let config = RetryConfig::default();
+        let delay = config.delay_for_attempt(0);
+        // 500 * 2^0 = 500ms
+        assert_eq!(delay, Duration::from_millis(500));
+    }
+
+    #[test]
+    fn delay_for_attempt_exponential() {
+        let config = RetryConfig::default();
+        // attempt 0: 500 * 1 = 500
+        assert_eq!(config.delay_for_attempt(0), Duration::from_millis(500));
+        // attempt 1: 500 * 2 = 1000
+        assert_eq!(config.delay_for_attempt(1), Duration::from_millis(1000));
+        // attempt 2: 500 * 4 = 2000
+        assert_eq!(config.delay_for_attempt(2), Duration::from_millis(2000));
+    }
+
+    #[test]
+    fn delay_capped_at_max() {
+        let config = RetryConfig { max_retries: 10, base_delay_ms: 1000, backoff_factor: 10 };
+        let delay = config.delay_for_attempt(5);
+        assert!(delay <= Duration::from_millis(30_000));
+    }
+
+    #[test]
+    fn delay_no_overflow_with_large_attempt() {
+        let config = RetryConfig::default();
+        let delay = config.delay_for_attempt(100); // should not panic
+        assert!(delay <= Duration::from_millis(30_000));
+    }
+
+    #[test]
+    fn delay_no_overflow_with_large_base_and_factor() {
+        let config = RetryConfig { max_retries: 5, base_delay_ms: u64::MAX, backoff_factor: u32::MAX };
+        let delay = config.delay_for_attempt(10); // should not panic
+        assert!(delay <= Duration::from_millis(30_000));
+    }
+
+    #[test]
+    fn default_timeout_config() {
+        let config = TimeoutConfig::default();
+        assert_eq!(config.request_timeout, Duration::from_secs(30));
+        assert_eq!(config.connect_timeout, Duration::from_secs(10));
+    }
+}

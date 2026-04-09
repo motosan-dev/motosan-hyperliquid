@@ -15,3 +15,57 @@ pub struct OrderResponse {
     /// Order status (e.g. "filled", "partial", "open", "rejected").
     pub status: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn order_response_serde_roundtrip() {
+        let resp = OrderResponse {
+            order_id: "abc123".into(),
+            filled_price: Some(50000.0),
+            filled_size: 0.1,
+            requested_size: 0.1,
+            status: "filled".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let parsed: OrderResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.order_id, "abc123");
+        assert!((parsed.filled_price.unwrap() - 50000.0).abs() < f64::EPSILON);
+        assert!((parsed.filled_size - 0.1).abs() < f64::EPSILON);
+        assert!((parsed.requested_size - 0.1).abs() < f64::EPSILON);
+        assert_eq!(parsed.status, "filled");
+    }
+
+    #[test]
+    fn order_response_no_fill_price_roundtrip() {
+        let resp = OrderResponse {
+            order_id: "xyz".into(),
+            filled_price: None,
+            filled_size: 0.0,
+            requested_size: 1.0,
+            status: "open".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let parsed: OrderResponse = serde_json::from_str(&json).unwrap();
+        assert!(parsed.filled_price.is_none());
+        assert_eq!(parsed.status, "open");
+    }
+
+    #[test]
+    fn order_response_camel_case_keys() {
+        let resp = OrderResponse {
+            order_id: "x".into(),
+            filled_price: None,
+            filled_size: 0.0,
+            requested_size: 0.0,
+            status: "x".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("orderId"));
+        assert!(json.contains("filledPrice"));
+        assert!(json.contains("filledSize"));
+        assert!(json.contains("requestedSize"));
+    }
+}

@@ -50,3 +50,80 @@ impl Signer for PrivateKeySigner {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Signer;
+
+    const TEST_KEY: &str = "4c0883a69102937d6231471b5dbb6204fe512961708279f696ae98d69e7e3e01";
+
+    #[test]
+    fn from_hex_valid_key_with_0x_prefix() {
+        let signer = PrivateKeySigner::from_hex(&format!("0x{TEST_KEY}")).unwrap();
+        assert!(signer.address().starts_with("0x"));
+        assert_eq!(signer.address().len(), 42);
+    }
+
+    #[test]
+    fn from_hex_valid_key_without_prefix() {
+        let signer = PrivateKeySigner::from_hex(TEST_KEY).unwrap();
+        assert!(signer.address().starts_with("0x"));
+        assert_eq!(signer.address().len(), 42);
+    }
+
+    #[test]
+    fn from_hex_invalid_hex() {
+        let result = PrivateKeySigner::from_hex("not_a_valid_hex_string_at_all!!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_hex_wrong_length_panics() {
+        // SigningKey::from_bytes panics on wrong-length input via GenericArray
+        let _ = PrivateKeySigner::from_hex("0xabcd");
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_hex_empty_string_panics() {
+        // SigningKey::from_bytes panics on empty input via GenericArray
+        let _ = PrivateKeySigner::from_hex("");
+    }
+
+    #[test]
+    fn sign_hash_produces_65_bytes() {
+        let signer = PrivateKeySigner::from_hex(TEST_KEY).unwrap();
+        let hash = [0u8; 32];
+        let sig = signer.sign_hash(signer.address(), &hash).unwrap();
+        assert_eq!(sig.len(), 65);
+        assert!(sig[64] <= 1); // recovery id is 0 or 1
+    }
+
+    #[test]
+    fn sign_hash_deterministic() {
+        let signer = PrivateKeySigner::from_hex(TEST_KEY).unwrap();
+        let hash = [42u8; 32];
+        let sig1 = signer.sign_hash(signer.address(), &hash).unwrap();
+        let sig2 = signer.sign_hash(signer.address(), &hash).unwrap();
+        assert_eq!(sig1, sig2);
+    }
+
+    #[test]
+    fn sign_different_hashes_different_sigs() {
+        let signer = PrivateKeySigner::from_hex(TEST_KEY).unwrap();
+        let hash1 = [0u8; 32];
+        let hash2 = [1u8; 32];
+        let sig1 = signer.sign_hash(signer.address(), &hash1).unwrap();
+        let sig2 = signer.sign_hash(signer.address(), &hash2).unwrap();
+        assert_ne!(sig1, sig2);
+    }
+
+    #[test]
+    fn same_key_same_address() {
+        let s1 = PrivateKeySigner::from_hex(TEST_KEY).unwrap();
+        let s2 = PrivateKeySigner::from_hex(&format!("0x{TEST_KEY}")).unwrap();
+        assert_eq!(s1.address(), s2.address());
+    }
+}

@@ -332,4 +332,250 @@ mod tests {
         let debug = format!("{:?}", action);
         assert!(debug.contains("ClosedStale"));
     }
+
+    /// Helper that replicates the reconciliation logic from `reconcile_positions`
+    /// but works synchronously with pre-parsed exchange positions.
+    fn reconcile_local_vs_exchange(
+        local: &[LocalPosition],
+        exchange_json: &serde_json::Value,
+    ) -> Vec<ReconcileAction> {
+        let exchange_positions = parse_exchange_positions(exchange_json);
+
+        let exchange_by_market: HashMap<String, &ExchangePosition> = exchange_positions
+            .iter()
+            .map(|ep| (ep.market.clone(), ep))
+            .collect();
+
+        let mut actions = Vec::new();
+
+        let mut local_by_market: HashMap<String, &LocalPosition> = HashMap::new();
+        for p in local {
+            let market = format!("{}-PERP", p.coin.to_uppercase());
+            if local_by_market.contains_key(&market) {
+                actions.push(ReconcileAction::ClosedStale {
+                    id: p.id.clone(),
+                    market: market.clone(),
+                });
+            } else {
+                local_by_market.insert(market, p);
+            }
+        }
+
+        for (market, local_pos) in &local_by_market {
+            if !exchange_by_market.contains_key(market) {
+                actions.push(ReconcileAction::ClosedStale {
+                    id: local_pos.id.clone(),
+                    market: market.clone(),
+                });
+            }
+        }
+
+        for ep in &exchange_positions {
+            match local_by_market.get(&ep.market) {
+                None => {
+                    actions.push(ReconcileAction::AddedMissing {
+                        market: ep.market.clone(),
+                        side: ep.side.clone(),
+                        size: ep.size,
+                        entry_price: ep.entry_price,
+                    });
+                }
+                Some(local_pos) => {
+                    let size_diff = (local_pos.size - ep.size).abs();
+                    let threshold = ep.size * 0.001;
+                    let side_changed = local_pos.side != ep.side;
+                    if size_diff > threshold || side_changed {
+                        actions.push(ReconcileAction::Updated {
+                            market: ep.market.clone(),
+                            old_size: local_pos.size,
+                            new_size: ep.size,
+                            old_side: local_pos.side.clone(),
+                            new_side: ep.side.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        actions
+    }
+
+    #[test]
+    fn reconcile_exchange_has_position_local_does_not() {
+        let local: Vec<LocalPosition> = vec![];
+        let exchange = serde_json::json!({
+            "assetPositions": [{
+                "position": {
+                    "coin": "BTC",
+                    "szi": "0.5",
+                    "entryPx": "60000.0"
+                }
+            }]
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            ReconcileAction::AddedMissing { market, side, size, entry_price } => {
+                assert_eq!(market, "BTC-PERP");
+                assert_eq!(side, "long");
+                assert!((size - 0.5).abs() < 1e-12);
+                assert!((entry_price - 60000.0).abs() < 1e-6);
+            }
+            other => panic!("Expected AddedMissing, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn reconcile_local_has_position_exchange_does_not() {
+        let local = vec![LocalPosition {
+            id: "pos-1".into(),
+            coin: "ETH".into(),
+            side: "long".into(),
+            size: 2.0,
+        }];
+        let exchange = serde_json::json!({
+            "assetPositions": []
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            ReconcileAction::ClosedStale { id, market } => {
+                assert_eq!(id, "pos-1");
+                assert_eq!(market, "ETH-PERP");
+            }
+            other => panic!("Expected ClosedStale, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn reconcile_size_diverged_triggers_updated() {
+        let local = vec![LocalPosition {
+            id: "pos-2".into(),
+            coin: "BTC".into(),
+            side: "long".into(),
+            size: 1.0,
+        }];
+        let exchange = serde_json::json!({
+            "assetPositions": [{
+                "position": {
+                    "coin": "BTC",
+                    "szi": "0.5",
+                    "entryPx": "60000.0"
+                }
+            }]
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            ReconcileAction::Updated { market, old_size, new_size, old_side, new_side } => {
+                assert_eq!(market, "BTC-PERP");
+                assert!((old_size - 1.0).abs() < 1e-12);
+                assert!((new_size - 0.5).abs() < 1e-12);
+                assert_eq!(old_side, "long");
+                assert_eq!(new_side, "long");
+            }
+            other => panic!("Expected Updated, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn reconcile_side_changed_triggers_updated() {
+        let local = vec![LocalPosition {
+            id: "pos-3".into(),
+            coin: "BTC".into(),
+            side: "long".into(),
+            size: 1.0,
+        }];
+        let exchange = serde_json::json!({
+            "assetPositions": [{
+                "position": {
+                    "coin": "BTC",
+                    "szi": "-1.0",
+                    "entryPx": "60000.0"
+                }
+            }]
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            ReconcileAction::Updated { old_side, new_side, .. } => {
+                assert_eq!(old_side, "long");
+                assert_eq!(new_side, "short");
+            }
+            other => panic!("Expected Updated, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn reconcile_matching_positions_no_action() {
+        let local = vec![LocalPosition {
+            id: "pos-4".into(),
+            coin: "BTC".into(),
+            side: "long".into(),
+            size: 0.5,
+        }];
+        let exchange = serde_json::json!({
+            "assetPositions": [{
+                "position": {
+                    "coin": "BTC",
+                    "szi": "0.5",
+                    "entryPx": "60000.0"
+                }
+            }]
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        assert!(actions.is_empty(), "Expected no actions, got {:?}", actions);
+    }
+
+    #[test]
+    fn reconcile_both_empty_no_action() {
+        let local: Vec<LocalPosition> = vec![];
+        let exchange = serde_json::json!({
+            "assetPositions": []
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn reconcile_duplicate_local_positions_marked_stale() {
+        let local = vec![
+            LocalPosition { id: "pos-a".into(), coin: "BTC".into(), side: "long".into(), size: 0.5 },
+            LocalPosition { id: "pos-b".into(), coin: "BTC".into(), side: "long".into(), size: 0.3 },
+        ];
+        let exchange = serde_json::json!({
+            "assetPositions": [{
+                "position": {
+                    "coin": "BTC",
+                    "szi": "0.5",
+                    "entryPx": "60000.0"
+                }
+            }]
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        let stale_count = actions.iter().filter(|a| matches!(a, ReconcileAction::ClosedStale { .. })).count();
+        assert_eq!(stale_count, 1, "Duplicate local position should be marked stale");
+    }
+
+    #[test]
+    fn reconcile_small_size_diff_within_tolerance() {
+        // Size differs by less than 0.1% -- should not trigger Updated
+        let local = vec![LocalPosition {
+            id: "pos-5".into(),
+            coin: "BTC".into(),
+            side: "long".into(),
+            size: 1.0005, // ~0.05% diff from 1.0
+        }];
+        let exchange = serde_json::json!({
+            "assetPositions": [{
+                "position": {
+                    "coin": "BTC",
+                    "szi": "1.0",
+                    "entryPx": "60000.0"
+                }
+            }]
+        });
+        let actions = reconcile_local_vs_exchange(&local, &exchange);
+        assert!(actions.is_empty(), "Small size diff within tolerance should produce no action, got {:?}", actions);
+    }
 }

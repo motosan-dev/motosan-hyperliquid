@@ -64,3 +64,66 @@ impl AssetMetaCache {
         self.coin_to_sz_decimals.get(&coin.to_uppercase()).copied()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_cache() -> AssetMetaCache {
+        AssetMetaCache::from_maps(
+            [("BTC".to_string(), 0), ("ETH".to_string(), 1), ("SOL".to_string(), 2)].into(),
+            [("BTC".to_string(), 5), ("ETH".to_string(), 8), ("SOL".to_string(), 4)].into(),
+        )
+    }
+
+    #[test]
+    fn asset_index_exact_match() {
+        let cache = test_cache();
+        assert_eq!(cache.asset_index("BTC"), Some(0));
+        assert_eq!(cache.asset_index("ETH"), Some(1));
+        assert_eq!(cache.asset_index("SOL"), Some(2));
+    }
+
+    #[test]
+    fn asset_index_case_insensitive() {
+        let cache = test_cache();
+        assert_eq!(cache.asset_index("btc"), Some(0));
+        assert_eq!(cache.asset_index("Btc"), Some(0));
+        assert_eq!(cache.asset_index("eth"), Some(1));
+    }
+
+    #[test]
+    fn asset_index_not_found() {
+        let cache = test_cache();
+        assert_eq!(cache.asset_index("DOGE"), None);
+        assert_eq!(cache.asset_index(""), None);
+    }
+
+    #[test]
+    fn sz_decimals_lookup() {
+        let cache = test_cache();
+        assert_eq!(cache.sz_decimals("BTC"), Some(5));
+        assert_eq!(cache.sz_decimals("ETH"), Some(8));
+        assert_eq!(cache.sz_decimals("SOL"), Some(4));
+    }
+
+    #[test]
+    fn sz_decimals_case_insensitive() {
+        let cache = test_cache();
+        assert_eq!(cache.sz_decimals("btc"), Some(5));
+        assert_eq!(cache.sz_decimals("Eth"), Some(8));
+    }
+
+    #[test]
+    fn sz_decimals_not_found() {
+        let cache = test_cache();
+        assert_eq!(cache.sz_decimals("UNKNOWN"), None);
+    }
+
+    #[test]
+    fn empty_cache() {
+        let cache = AssetMetaCache::from_maps(HashMap::new(), HashMap::new());
+        assert_eq!(cache.asset_index("BTC"), None);
+        assert_eq!(cache.sz_decimals("BTC"), None);
+    }
+}
