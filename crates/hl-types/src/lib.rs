@@ -1,3 +1,13 @@
+//! # hl-types
+//!
+//! Shared domain types for the motosan-hyperliquid SDK.
+//!
+//! This crate defines the Rust structs that map to Hyperliquid's API data
+//! model: orders, positions, candles, signatures, and a unified error type.
+//! Every other crate in the SDK depends on `hl-types`.
+//!
+//! This crate has no network dependencies.
+
 pub mod account;
 pub mod candle;
 pub mod error;

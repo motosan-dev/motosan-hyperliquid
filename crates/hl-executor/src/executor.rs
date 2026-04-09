@@ -302,9 +302,9 @@ impl OrderExecutor {
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
         let coin = normalize_symbol(symbol);
-        let asset_idx = self.meta_cache.asset_index(&coin).ok_or_else(|| HlError::Parse(
-            format!("Asset '{}' not found in exchange universe", symbol),
-        ))?;
+        let asset_idx = self.meta_cache.asset_index(&coin).ok_or_else(|| {
+            HlError::Parse(format!("Asset '{}' not found in exchange universe", symbol))
+        })?;
 
         let is_buy = side == "buy";
         let nonce = next_nonce();
@@ -364,8 +364,7 @@ impl OrderExecutor {
             });
         }
 
-        let (order_id, fill_price, fill_size) =
-            parse_order_response(&result, trigger_price, size)?;
+        let (order_id, fill_price, fill_size) = parse_order_response(&result, trigger_price, size)?;
 
         // Trigger orders typically rest unfilled until the trigger fires
         let status = if fill_size < size * 0.99 && fill_size > 0.0 {

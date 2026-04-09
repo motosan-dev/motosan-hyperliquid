@@ -1,3 +1,9 @@
+//! # hl-executor
+//!
+//! Order execution for the Hyperliquid L1: place/cancel orders, trigger
+//! orders (stop-loss, take-profit), vault transfers, and position
+//! reconciliation. Handles EIP-712 signing and nonce management internally.
+
 pub mod executor;
 pub mod meta_cache;
 pub mod reconcile;

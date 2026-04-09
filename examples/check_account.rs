@@ -1,0 +1,73 @@
+//! # Check Account State
+//!
+//! Demonstrates how to query positions, fills, and vault information
+//! for a Hyperliquid account.
+//!
+//! ## Running
+//!
+//! ```bash
+//! # Set the address to query (any public address works)
+//! export HL_ADDRESS="0xYourAddress"
+//! cargo run --example check_account
+//! ```
+//!
+//! No private key is needed -- all queries are read-only.
+
+use hl_account::Account;
+use hl_client::HyperliquidClient;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let address = std::env::var("HL_ADDRESS").unwrap_or_else(|_| {
+        eprintln!("Set HL_ADDRESS env var to query an account. Using placeholder.");
+        "0x0000000000000000000000000000000000000000".to_string()
+    });
+
+    let client = HyperliquidClient::mainnet()?;
+    let account = Account::new(client);
+
+    // ── Account State ────────────────────────────────────────
+    println!("=== Account State for {} ===", &address[..10]);
+    let state = account.state(&address).await?;
+    println!("  Equity:           {:.2}", state.equity);
+    println!("  Margin available: {:.2}", state.margin_available);
+    println!("  Open positions:   {}", state.positions.len());
+
+    for pos in &state.positions {
+        let direction = if pos.size > 0.0 { "LONG" } else { "SHORT" };
+        println!(
+            "\n  {} {} (size={:.6}, entry={:.2}, pnl={:.2}, lev={:.1}x)",
+            direction, pos.coin, pos.size.abs(), pos.entry_px, pos.unrealized_pnl, pos.leverage
+        );
+        if let Some(liq) = pos.liquidation_px {
+            println!("    Liquidation price: {:.2}", liq);
+        }
+    }
+
+    // ── Recent Fills ─────────────────────────────────────────
+    println!("\n=== Recent Fills (last 10) ===");
+    let fills = account.fills(&address).await?;
+    for f in fills.iter().take(10) {
+        let side = if f.is_buy { "BUY " } else { "SELL" };
+        println!(
+            "  {} {:.6} {} @ {:.2} (fee={:.4}, pnl={:.2})",
+            side, f.sz, f.coin, f.px, f.fee, f.closed_pnl
+        );
+    }
+    if fills.is_empty() {
+        println!("  (no fills)");
+    }
+
+    // ── Vault Summaries ──────────────────────────────────────
+    println!("\n=== Vault Summaries ===");
+    let vaults = account.vault_summaries(&address).await?;
+    if vaults.is_empty() {
+        println!("  (no vaults)");
+    } else {
+        for (i, v) in vaults.iter().enumerate() {
+            println!("  Vault {}: {}", i + 1, v);
+        }
+    }
+
+    Ok(())
+}

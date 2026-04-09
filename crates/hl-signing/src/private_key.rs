@@ -3,12 +3,18 @@ use hl_types::HlError;
 use k256::ecdsa::{signature::hazmat::PrehashSigner, SigningKey, VerifyingKey};
 use sha3::{Digest, Keccak256};
 
+/// A [`Signer`] backed by a raw ECDSA private key (k256/secp256k1).
+///
+/// Use this for simple setups where you have a hex-encoded private key.
+/// For production, consider implementing [`Signer`] with a more secure
+/// key management backend (HSM, keyring, HD wallet).
 pub struct PrivateKeySigner {
     key: SigningKey,
     address: String,
 }
 
 impl PrivateKeySigner {
+    /// Create a signer from a hex-encoded private key (with or without `0x` prefix).
     pub fn from_hex(key_hex: &str) -> Result<Self, HlError> {
         let stripped = key_hex.strip_prefix("0x").unwrap_or(key_hex);
         let bytes =
@@ -20,6 +26,7 @@ impl PrivateKeySigner {
         Ok(Self { key, address })
     }
 
+    /// Returns the Ethereum address derived from this key.
     pub fn address(&self) -> &str {
         &self.address
     }

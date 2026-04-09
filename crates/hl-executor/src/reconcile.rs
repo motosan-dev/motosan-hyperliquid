@@ -70,19 +70,11 @@ fn parse_exchange_positions(resp: &serde_json::Value) -> Vec<ExchangePosition> {
     if let Some(asset_positions) = resp["assetPositions"].as_array() {
         for pos in asset_positions {
             let p = &pos["position"];
-            let size: f64 = p["szi"]
-                .as_str()
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0.0);
+            let size: f64 = p["szi"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
             if size.abs() < 1e-12 {
                 continue;
             }
-            let entry_price: f64 = p["entryPx"]
-                .as_str()
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0.0);
+            let entry_price: f64 = p["entryPx"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
             let coin = match p["coin"].as_str() {
                 Some(c) if !c.is_empty() => c,
                 _ => {

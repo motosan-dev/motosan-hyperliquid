@@ -1,11 +1,16 @@
 use hl_client::HyperliquidClient;
 use hl_types::{HlAccountState, HlError, HlFill, HlPosition};
 
+/// Typed interface for Hyperliquid account state queries.
+///
+/// Wraps a [`HyperliquidClient`] and provides methods to fetch positions,
+/// fills, vault information, and agent approvals for any public address.
 pub struct Account {
     client: HyperliquidClient,
 }
 
 impl Account {
+    /// Create a new `Account` instance wrapping the given client.
     pub fn new(client: HyperliquidClient) -> Self {
         Self { client }
     }

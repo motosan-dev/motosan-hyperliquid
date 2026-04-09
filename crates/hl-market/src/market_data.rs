@@ -1,11 +1,16 @@
 use hl_client::HyperliquidClient;
-use hl_types::{HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook, normalize_coin};
+use hl_types::{normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook};
 
+/// Typed interface for Hyperliquid market data queries.
+///
+/// Wraps a [`HyperliquidClient`] and provides methods to fetch candles,
+/// orderbook snapshots, mid-prices, asset metadata, and funding rates.
 pub struct MarketData {
     client: HyperliquidClient,
 }
 
 impl MarketData {
+    /// Create a new `MarketData` instance wrapping the given client.
     pub fn new(client: HyperliquidClient) -> Self {
         Self { client }
     }
@@ -156,7 +161,11 @@ pub fn parse_orderbook(response: &serde_json::Value, coin: &str) -> Result<HlOrd
                     .filter_map(|entry| {
                         let px = parse_str_f64(entry.get("px"));
                         let sz = parse_str_f64(entry.get("sz"));
-                        if px > 0.0 { Some((px, sz)) } else { None }
+                        if px > 0.0 {
+                            Some((px, sz))
+                        } else {
+                            None
+                        }
                     })
                     .collect()
             })
