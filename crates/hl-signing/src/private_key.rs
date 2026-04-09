@@ -19,6 +19,9 @@ impl PrivateKeySigner {
         let stripped = key_hex.strip_prefix("0x").unwrap_or(key_hex);
         let bytes =
             hex::decode(stripped).map_err(|e| HlError::Signing(format!("invalid hex: {e}")))?;
+        if bytes.len() != 32 {
+            return Err(HlError::Signing("private key must be 32 bytes".to_string()));
+        }
         let key = SigningKey::from_bytes(bytes.as_slice().into())
             .map_err(|e| HlError::Signing(format!("invalid key: {e}")))?;
         let vk = *key.verifying_key();
@@ -79,17 +82,29 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn from_hex_wrong_length_panics() {
-        // SigningKey::from_bytes panics on wrong-length input via GenericArray
-        let _ = PrivateKeySigner::from_hex("0xabcd");
+    fn from_hex_wrong_length_returns_error() {
+        let result = PrivateKeySigner::from_hex("0xabcd");
+        let err = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("expected error for wrong-length key"),
+        };
+        assert!(
+            err.contains("private key must be 32 bytes"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
-    #[should_panic]
-    fn from_hex_empty_string_panics() {
-        // SigningKey::from_bytes panics on empty input via GenericArray
-        let _ = PrivateKeySigner::from_hex("");
+    fn from_hex_empty_string_returns_error() {
+        let result = PrivateKeySigner::from_hex("");
+        let err = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("expected error for empty key"),
+        };
+        assert!(
+            err.contains("private key must be 32 bytes"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
