@@ -7,30 +7,6 @@ use hl_types::*;
 
 use crate::meta_cache::AssetMetaCache;
 
-/// Global monotonically increasing nonce counter.
-///
-/// Ensures that nonces never decrease even if the system clock jumps backward
-/// (e.g. due to NTP synchronisation). Each call to [`next_nonce`] returns a
-/// value that is at least `max(current_time_ms, previous_nonce + 1)`.
-static LAST_NONCE: AtomicU64 = AtomicU64::new(0);
-
-/// Generate a monotonically increasing nonce based on the current time in
-/// milliseconds since the UNIX epoch.
-fn next_nonce() -> u64 {
-    loop {
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock before UNIX epoch")
-            .as_millis() as u64;
-        let prev = LAST_NONCE.load(Ordering::Acquire);
-        let next = std::cmp::max(now_ms, prev + 1);
-        match LAST_NONCE.compare_exchange_weak(prev, next, Ordering::Release, Ordering::Acquire) {
-            Ok(_) => return next,
-            Err(_) => continue,
-        }
-    }
-}
-
 /// Normalize a market symbol to its base coin name.
 ///
 /// Uses [`hl_types::normalize_coin`] to strip common suffixes (-PERP, -USDC,
@@ -125,6 +101,13 @@ pub struct OrderExecutor {
     signer: Box<dyn Signer>,
     address: String,
     meta_cache: AssetMetaCache,
+    /// Per-instance monotonically increasing nonce counter.
+    ///
+    /// Ensures that nonces never decrease even if the system clock jumps
+    /// backward (e.g. due to NTP synchronisation). If callers need shared
+    /// nonces across multiple executors, they can wrap this in an
+    /// `Arc<AtomicU64>` externally.
+    nonce: AtomicU64,
 }
 
 impl OrderExecutor {
@@ -140,6 +123,7 @@ impl OrderExecutor {
             signer,
             address,
             meta_cache,
+            nonce: AtomicU64::new(0),
         })
     }
 
@@ -155,6 +139,27 @@ impl OrderExecutor {
             signer,
             address,
             meta_cache,
+            nonce: AtomicU64::new(0),
+        }
+    }
+
+    /// Generate a monotonically increasing nonce based on the current time in
+    /// milliseconds since the UNIX epoch.
+    fn next_nonce(&self) -> u64 {
+        loop {
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before UNIX epoch")
+                .as_millis() as u64;
+            let prev = self.nonce.load(Ordering::Acquire);
+            let next = std::cmp::max(now_ms, prev + 1);
+            match self
+                .nonce
+                .compare_exchange_weak(prev, next, Ordering::Release, Ordering::Acquire)
+            {
+                Ok(_) => return next,
+                Err(_) => continue,
+            }
         }
     }
 
@@ -168,7 +173,7 @@ impl OrderExecutor {
         order: OrderWire,
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
-        let nonce = next_nonce();
+        let nonce = self.next_nonce();
 
         let fallback_price: f64 = order.limit_px.parse().unwrap_or(0.0);
         let fallback_size: f64 = order.sz.parse().unwrap_or(0.0);
@@ -275,7 +280,7 @@ impl OrderExecutor {
             "type": "cancel",
             "cancels": [{"a": asset, "o": oid}]
         });
-        let nonce = next_nonce();
+        let nonce = self.next_nonce();
         let sig = sign_l1_action(
             self.signer.as_ref(),
             &self.address,
@@ -307,7 +312,7 @@ impl OrderExecutor {
         })?;
 
         let is_buy = side == "buy";
-        let nonce = next_nonce();
+        let nonce = self.next_nonce();
         let cloid = uuid::Uuid::new_v4().to_string();
 
         let action = serde_json::json!({
@@ -410,7 +415,7 @@ impl OrderExecutor {
             "isDeposit": true,
             "usd": amount,
         });
-        let nonce = next_nonce();
+        let nonce = self.next_nonce();
         let sig = sign_l1_action(
             self.signer.as_ref(),
             &self.address,
