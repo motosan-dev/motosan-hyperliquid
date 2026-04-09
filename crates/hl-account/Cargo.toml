@@ -5,6 +5,14 @@ edition.workspace = true
 license.workspace = true
 description = "Hyperliquid account state — positions, fills, vaults, agent approvals"
 
+[features]
+default = []
+live-test = ["hl-client/live-test"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+hl-signing = { path = "../hl-signing" }
+
 [dependencies]
 hl-types.workspace = true
 hl-client.workspace = true

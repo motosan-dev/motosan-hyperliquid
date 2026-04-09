@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description = "Hyperliquid EIP-712 signing — Signer trait, PrivateKeySigner, action hashing"
 
+[features]
+default = []
+live-test = []
+
 [dependencies]
 hl-types.workspace = true
 k256 = { version = "0.13", features = ["ecdsa"] }
