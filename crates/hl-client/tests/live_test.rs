@@ -12,7 +12,10 @@ async fn live_post_info_meta() {
     let resp = client.post_info(serde_json::json!({"type": "meta"})).await;
     assert!(resp.is_ok(), "meta query failed: {:?}", resp.err());
     let meta = resp.unwrap();
-    assert!(meta["universe"].is_array(), "meta should have universe array");
+    assert!(
+        meta["universe"].is_array(),
+        "meta should have universe array"
+    );
     let universe = meta["universe"].as_array().unwrap();
     assert!(!universe.is_empty(), "universe should not be empty");
     // BTC should be in the universe

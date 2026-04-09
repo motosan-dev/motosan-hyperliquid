@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Filled size:    {}", response.filled_size);
     println!("  Requested size: {}", response.requested_size);
     if let Some(px) = response.filled_price {
-        println!("  Fill price:     {:.2}", px);
+        println!("  Fill price:     {}", px);
     }
 
     // ── Cancel (cleanup) ─────────────────────────────────────

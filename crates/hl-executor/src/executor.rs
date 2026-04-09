@@ -1,5 +1,8 @@
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use rust_decimal::Decimal;
 
 use hl_client::HyperliquidClient;
 use hl_signing::{sign_l1_action, Signer};
@@ -23,9 +26,9 @@ fn normalize_symbol(symbol: &str) -> String {
 /// status entries.
 fn parse_order_response(
     result: &serde_json::Value,
-    fallback_price: f64,
-    fallback_size: f64,
-) -> Result<(String, f64, f64), HlError> {
+    fallback_price: Decimal,
+    fallback_size: Decimal,
+) -> Result<(String, Decimal, Decimal), HlError> {
     let status_entry = result
         .get("response")
         .and_then(|r| r.get("data"))
@@ -50,11 +53,11 @@ fn parse_order_response(
             let avg_px = filled
                 .get("avgPx")
                 .and_then(|p| p.as_str())
-                .and_then(|s| s.parse::<f64>().ok());
+                .and_then(|s| Decimal::from_str(s).ok());
             let total_sz = filled
                 .get("totalSz")
                 .and_then(|s| s.as_str())
-                .and_then(|s| s.parse::<f64>().ok());
+                .and_then(|s| Decimal::from_str(s).ok());
             Ok((
                 oid,
                 avg_px.unwrap_or(fallback_price),
@@ -76,7 +79,7 @@ fn parse_order_response(
             Ok((
                 oid,
                 fallback_price, // Not filled yet, use fallback price
-                0.0,            // Resting order has zero fill
+                Decimal::ZERO,  // Resting order has zero fill
             ))
         } else {
             Err(HlError::Parse(format!(
@@ -90,6 +93,12 @@ fn parse_order_response(
         ))
     }
 }
+
+/// The fill-size threshold ratio used to distinguish "filled" from "partial".
+///
+/// If `fill_size >= requested_size * FILL_THRESHOLD` the order is considered
+/// fully filled.
+const FILL_THRESHOLD: Decimal = Decimal::from_parts(99, 0, 0, false, 2); // 0.99
 
 /// Standalone order executor for the Hyperliquid L1.
 ///
@@ -175,8 +184,8 @@ impl OrderExecutor {
     ) -> Result<OrderResponse, HlError> {
         let nonce = self.next_nonce();
 
-        let fallback_price: f64 = order.limit_px.parse().unwrap_or(0.0);
-        let fallback_size: f64 = order.sz.parse().unwrap_or(0.0);
+        let fallback_price: Decimal = Decimal::from_str(&order.limit_px).unwrap_or(Decimal::ZERO);
+        let fallback_size: Decimal = Decimal::from_str(&order.sz).unwrap_or(Decimal::ZERO);
 
         // Build the wire-format order object
         let mut order_json = serde_json::json!({
@@ -242,13 +251,13 @@ impl OrderExecutor {
             parse_order_response(&result, fallback_price, fallback_size)?;
 
         // Determine status string
-        let status = if fill_size >= fallback_size * 0.99 {
+        let status = if fill_size >= fallback_size * FILL_THRESHOLD {
             "filled".to_string()
-        } else if fill_size > 0.0 {
+        } else if fill_size > Decimal::ZERO {
             tracing::warn!(
                 order_id = %order_id,
-                filled = fill_size,
-                requested = fallback_size,
+                filled = %fill_size,
+                requested = %fallback_size,
                 "Partial fill detected"
             );
             "partial".to_string()
@@ -258,7 +267,7 @@ impl OrderExecutor {
 
         Ok(OrderResponse {
             order_id,
-            filled_price: if fill_size > 0.0 {
+            filled_price: if fill_size > Decimal::ZERO {
                 Some(fill_price)
             } else {
                 None
@@ -301,8 +310,8 @@ impl OrderExecutor {
         &self,
         symbol: &str,
         side: &str,
-        size: f64,
-        trigger_price: f64,
+        size: Decimal,
+        trigger_price: Decimal,
         tpsl: &str,
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
@@ -320,12 +329,12 @@ impl OrderExecutor {
             "orders": [{
                 "a": asset_idx,
                 "b": is_buy,
-                "p": format!("{}", trigger_price),
-                "s": format!("{}", size),
+                "p": trigger_price.to_string(),
+                "s": size.to_string(),
                 "r": true,
                 "t": {
                     "trigger": {
-                        "triggerPx": format!("{}", trigger_price),
+                        "triggerPx": trigger_price.to_string(),
                         "isMarket": true,
                         "tpsl": tpsl
                     }
@@ -372,15 +381,15 @@ impl OrderExecutor {
         let (order_id, fill_price, fill_size) = parse_order_response(&result, trigger_price, size)?;
 
         // Trigger orders typically rest unfilled until the trigger fires
-        let status = if fill_size < size * 0.99 && fill_size > 0.0 {
+        let status = if fill_size < size * FILL_THRESHOLD && fill_size > Decimal::ZERO {
             tracing::warn!(
                 order_id = %order_id,
-                filled = fill_size,
-                requested = size,
+                filled = %fill_size,
+                requested = %size,
                 "Partial fill detected on trigger order"
             );
             "partial".to_string()
-        } else if fill_size == 0.0 {
+        } else if fill_size == Decimal::ZERO {
             "open".to_string()
         } else {
             match tpsl {
@@ -392,7 +401,7 @@ impl OrderExecutor {
 
         Ok(OrderResponse {
             order_id,
-            filled_price: if fill_size > 0.0 {
+            filled_price: if fill_size > Decimal::ZERO {
                 Some(fill_price)
             } else {
                 None
@@ -407,13 +416,13 @@ impl OrderExecutor {
     pub async fn transfer_to_vault(
         &self,
         vault: &str,
-        amount: f64,
+        amount: Decimal,
     ) -> Result<serde_json::Value, HlError> {
         let action = serde_json::json!({
             "type": "vaultTransfer",
             "vaultAddress": vault,
             "isDeposit": true,
-            "usd": amount,
+            "usd": amount.to_string(),
         });
         let nonce = self.next_nonce();
         let sig = sign_l1_action(

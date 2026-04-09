@@ -100,7 +100,11 @@ mod tests {
 
     #[test]
     fn delay_capped_at_max() {
-        let config = RetryConfig { max_retries: 10, base_delay_ms: 1000, backoff_factor: 10 };
+        let config = RetryConfig {
+            max_retries: 10,
+            base_delay_ms: 1000,
+            backoff_factor: 10,
+        };
         let delay = config.delay_for_attempt(5);
         assert!(delay <= Duration::from_millis(30_000));
     }
@@ -114,7 +118,11 @@ mod tests {
 
     #[test]
     fn delay_no_overflow_with_large_base_and_factor() {
-        let config = RetryConfig { max_retries: 5, base_delay_ms: u64::MAX, backoff_factor: u32::MAX };
+        let config = RetryConfig {
+            max_retries: 5,
+            base_delay_ms: u64::MAX,
+            backoff_factor: u32::MAX,
+        };
         let delay = config.delay_for_attempt(10); // should not panic
         assert!(delay <= Duration::from_millis(30_000));
     }

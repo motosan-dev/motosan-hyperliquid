@@ -2,6 +2,7 @@
 
 use hl_account::Account;
 use hl_client::HyperliquidClient;
+use hl_types::Decimal;
 
 fn account() -> (Account, String) {
     let key = std::env::var("HYPERLIQUID_TESTNET_KEY")
@@ -19,7 +20,7 @@ async fn live_account_state() {
     assert!(state.is_ok(), "account state failed: {:?}", state.err());
     let state = state.unwrap();
     // Equity should be non-negative (even if zero for a new testnet account)
-    assert!(state.equity >= 0.0);
+    assert!(state.equity >= Decimal::ZERO);
 }
 
 #[tokio::test]

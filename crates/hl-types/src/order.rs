@@ -82,7 +82,10 @@ mod tests {
             limit_px: "3000.5".into(),
             sz: "2.0".into(),
             reduce_only: true,
-            order_type: OrderTypeWire { limit: None, trigger: None },
+            order_type: OrderTypeWire {
+                limit: None,
+                trigger: None,
+            },
             cloid: Some("my-order-123".into()),
         };
         let json = serde_json::to_string(&order).unwrap();
@@ -126,7 +129,10 @@ mod tests {
             limit_px: "1.0".into(),
             sz: "1.0".into(),
             reduce_only: false,
-            order_type: OrderTypeWire { limit: None, trigger: None },
+            order_type: OrderTypeWire {
+                limit: None,
+                trigger: None,
+            },
             cloid: None,
         };
         let json = serde_json::to_string(&order).unwrap();

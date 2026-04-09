@@ -15,6 +15,7 @@
 
 use hl_account::Account;
 use hl_client::HyperliquidClient;
+use hl_types::Decimal;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,18 +30,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Account State ────────────────────────────────────────
     println!("=== Account State for {} ===", &address[..10]);
     let state = account.state(&address).await?;
-    println!("  Equity:           {:.2}", state.equity);
-    println!("  Margin available: {:.2}", state.margin_available);
+    println!("  Equity:           {}", state.equity);
+    println!("  Margin available: {}", state.margin_available);
     println!("  Open positions:   {}", state.positions.len());
 
     for pos in &state.positions {
-        let direction = if pos.size > 0.0 { "LONG" } else { "SHORT" };
+        let direction = if pos.size > Decimal::ZERO {
+            "LONG"
+        } else {
+            "SHORT"
+        };
         println!(
-            "\n  {} {} (size={:.6}, entry={:.2}, pnl={:.2}, lev={:.1}x)",
-            direction, pos.coin, pos.size.abs(), pos.entry_px, pos.unrealized_pnl, pos.leverage
+            "\n  {} {} (size={}, entry={}, pnl={}, lev={}x)",
+            direction,
+            pos.coin,
+            pos.size.abs(),
+            pos.entry_px,
+            pos.unrealized_pnl,
+            pos.leverage
         );
         if let Some(liq) = pos.liquidation_px {
-            println!("    Liquidation price: {:.2}", liq);
+            println!("    Liquidation price: {}", liq);
         }
     }
 
@@ -50,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for f in fills.iter().take(10) {
         let side = if f.is_buy { "BUY " } else { "SELL" };
         println!(
-            "  {} {:.6} {} @ {:.2} (fee={:.4}, pnl={:.2})",
+            "  {} {} {} @ {} (fee={}, pnl={})",
             side, f.sz, f.coin, f.px, f.fee, f.closed_pnl
         );
     }

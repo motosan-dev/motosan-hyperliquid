@@ -71,8 +71,18 @@ mod tests {
 
     fn test_cache() -> AssetMetaCache {
         AssetMetaCache::from_maps(
-            [("BTC".to_string(), 0), ("ETH".to_string(), 1), ("SOL".to_string(), 2)].into(),
-            [("BTC".to_string(), 5), ("ETH".to_string(), 8), ("SOL".to_string(), 4)].into(),
+            [
+                ("BTC".to_string(), 0),
+                ("ETH".to_string(), 1),
+                ("SOL".to_string(), 2),
+            ]
+            .into(),
+            [
+                ("BTC".to_string(), 5),
+                ("ETH".to_string(), 8),
+                ("SOL".to_string(), 4),
+            ]
+            .into(),
         )
     }
 

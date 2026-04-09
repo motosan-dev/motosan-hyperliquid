@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let candles = market.candles("BTC", "1h", 5).await?;
     for c in &candles {
         println!(
-            "  ts={} O={:.2} H={:.2} L={:.2} C={:.2} V={:.2}",
+            "  ts={} O={} H={} L={} C={} V={}",
             c.timestamp, c.open, c.high, c.low, c.close, c.volume
         );
     }
@@ -37,16 +37,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== ETH Orderbook (top 3 levels) ===");
     let book = market.orderbook("ETH").await?;
     for (i, (px, sz)) in book.bids.iter().take(3).enumerate() {
-        println!("  Bid {}: {:.2} @ {:.2}", i + 1, sz, px);
+        println!("  Bid {}: {} @ {}", i + 1, sz, px);
     }
     for (i, (px, sz)) in book.asks.iter().take(3).enumerate() {
-        println!("  Ask {}: {:.2} @ {:.2}", i + 1, sz, px);
+        println!("  Ask {}: {} @ {}", i + 1, sz, px);
     }
 
     // ── Mid-Price ────────────────────────────────────────────
     let mid = market.mid_price("BTC").await?;
     println!("\n=== BTC Mid-Price ===");
-    println!("  {:.2}", mid);
+    println!("  {}", mid);
 
     // ── Asset Metadata ───────────────────────────────────────
     println!("\n=== Asset Info (first 5) ===");
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rates = market.funding_rates().await?;
     for r in rates.iter().take(5) {
         println!(
-            "  {}: rate={:.8} next_funding={}",
+            "  {}: rate={} next_funding={}",
             r.coin, r.funding_rate, r.next_funding_time
         );
     }

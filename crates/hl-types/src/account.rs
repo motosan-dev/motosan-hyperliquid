@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// A position held on Hyperliquid.
@@ -7,15 +8,15 @@ pub struct HlPosition {
     /// The coin/asset symbol.
     pub coin: String,
     /// Position size (negative for short).
-    pub size: f64,
+    pub size: Decimal,
     /// Average entry price.
-    pub entry_px: f64,
+    pub entry_px: Decimal,
     /// Unrealised PnL.
-    pub unrealized_pnl: f64,
+    pub unrealized_pnl: Decimal,
     /// Leverage used.
-    pub leverage: f64,
+    pub leverage: Decimal,
     /// Liquidation price, if applicable.
-    pub liquidation_px: Option<f64>,
+    pub liquidation_px: Option<Decimal>,
 }
 
 /// A trade fill on Hyperliquid.
@@ -25,17 +26,17 @@ pub struct HlFill {
     /// The coin/asset symbol.
     pub coin: String,
     /// Fill price.
-    pub px: f64,
+    pub px: Decimal,
     /// Fill size.
-    pub sz: f64,
+    pub sz: Decimal,
     /// Whether the fill was on the buy side.
     pub is_buy: bool,
     /// Timestamp in milliseconds.
     pub timestamp: u64,
     /// Fee paid.
-    pub fee: f64,
+    pub fee: Decimal,
     /// Realized PnL from closing a position (0.0 if this fill opened a position).
-    pub closed_pnl: f64,
+    pub closed_pnl: Decimal,
 }
 
 /// Snapshot of an account's state.
@@ -43,9 +44,9 @@ pub struct HlFill {
 #[serde(rename_all = "camelCase")]
 pub struct HlAccountState {
     /// Account equity.
-    pub equity: f64,
+    pub equity: Decimal,
     /// Available margin.
-    pub margin_available: f64,
+    pub margin_available: Decimal,
     /// Open positions.
     pub positions: Vec<HlPosition>,
 }
@@ -53,51 +54,55 @@ pub struct HlAccountState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn position_serde_roundtrip() {
         let pos = HlPosition {
             coin: "BTC".into(),
-            size: 0.5,
-            entry_px: 60000.0,
-            unrealized_pnl: 150.0,
-            leverage: 10.0,
-            liquidation_px: Some(54000.0),
+            size: Decimal::from_str("0.5").unwrap(),
+            entry_px: Decimal::from_str("60000.0").unwrap(),
+            unrealized_pnl: Decimal::from_str("150.0").unwrap(),
+            leverage: Decimal::from_str("10.0").unwrap(),
+            liquidation_px: Some(Decimal::from_str("54000.0").unwrap()),
         };
         let json = serde_json::to_string(&pos).unwrap();
         let parsed: HlPosition = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.coin, "BTC");
-        assert!((parsed.size - 0.5).abs() < f64::EPSILON);
-        assert!((parsed.entry_px - 60000.0).abs() < f64::EPSILON);
-        assert!((parsed.unrealized_pnl - 150.0).abs() < f64::EPSILON);
-        assert!((parsed.leverage - 10.0).abs() < f64::EPSILON);
-        assert!((parsed.liquidation_px.unwrap() - 54000.0).abs() < f64::EPSILON);
+        assert_eq!(parsed.size, Decimal::from_str("0.5").unwrap());
+        assert_eq!(parsed.entry_px, Decimal::from_str("60000.0").unwrap());
+        assert_eq!(parsed.unrealized_pnl, Decimal::from_str("150.0").unwrap());
+        assert_eq!(parsed.leverage, Decimal::from_str("10.0").unwrap());
+        assert_eq!(
+            parsed.liquidation_px,
+            Some(Decimal::from_str("54000.0").unwrap())
+        );
     }
 
     #[test]
     fn position_no_liquidation_px_roundtrip() {
         let pos = HlPosition {
             coin: "ETH".into(),
-            size: -2.0,
-            entry_px: 3000.0,
-            unrealized_pnl: -50.0,
-            leverage: 5.0,
+            size: Decimal::from_str("-2.0").unwrap(),
+            entry_px: Decimal::from_str("3000.0").unwrap(),
+            unrealized_pnl: Decimal::from_str("-50.0").unwrap(),
+            leverage: Decimal::from_str("5.0").unwrap(),
             liquidation_px: None,
         };
         let json = serde_json::to_string(&pos).unwrap();
         let parsed: HlPosition = serde_json::from_str(&json).unwrap();
         assert!(parsed.liquidation_px.is_none());
-        assert!(parsed.size < 0.0);
+        assert!(parsed.size < Decimal::ZERO);
     }
 
     #[test]
     fn position_camel_case_keys() {
         let pos = HlPosition {
             coin: "X".into(),
-            size: 1.0,
-            entry_px: 1.0,
-            unrealized_pnl: 0.0,
-            leverage: 1.0,
+            size: Decimal::ONE,
+            entry_px: Decimal::ONE,
+            unrealized_pnl: Decimal::ZERO,
+            leverage: Decimal::ONE,
             liquidation_px: None,
         };
         let json = serde_json::to_string(&pos).unwrap();
@@ -110,34 +115,34 @@ mod tests {
     fn fill_serde_roundtrip() {
         let fill = HlFill {
             coin: "ETH".into(),
-            px: 3000.0,
-            sz: 1.5,
+            px: Decimal::from_str("3000.0").unwrap(),
+            sz: Decimal::from_str("1.5").unwrap(),
             is_buy: true,
             timestamp: 1700000000000,
-            fee: 0.75,
-            closed_pnl: 0.0,
+            fee: Decimal::from_str("0.75").unwrap(),
+            closed_pnl: Decimal::ZERO,
         };
         let json = serde_json::to_string(&fill).unwrap();
         let parsed: HlFill = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.coin, "ETH");
-        assert!((parsed.px - 3000.0).abs() < f64::EPSILON);
-        assert!((parsed.sz - 1.5).abs() < f64::EPSILON);
+        assert_eq!(parsed.px, Decimal::from_str("3000.0").unwrap());
+        assert_eq!(parsed.sz, Decimal::from_str("1.5").unwrap());
         assert!(parsed.is_buy);
         assert_eq!(parsed.timestamp, 1700000000000);
-        assert!((parsed.fee - 0.75).abs() < f64::EPSILON);
-        assert!((parsed.closed_pnl - 0.0).abs() < f64::EPSILON);
+        assert_eq!(parsed.fee, Decimal::from_str("0.75").unwrap());
+        assert_eq!(parsed.closed_pnl, Decimal::ZERO);
     }
 
     #[test]
     fn fill_camel_case_keys() {
         let fill = HlFill {
             coin: "X".into(),
-            px: 1.0,
-            sz: 1.0,
+            px: Decimal::ONE,
+            sz: Decimal::ONE,
             is_buy: false,
             timestamp: 0,
-            fee: 0.0,
-            closed_pnl: 100.0,
+            fee: Decimal::ZERO,
+            closed_pnl: Decimal::from_str("100.0").unwrap(),
         };
         let json = serde_json::to_string(&fill).unwrap();
         assert!(json.contains("isBuy"));
@@ -147,23 +152,24 @@ mod tests {
     #[test]
     fn account_state_serde_roundtrip() {
         let state = HlAccountState {
-            equity: 100000.0,
-            margin_available: 50000.0,
-            positions: vec![
-                HlPosition {
-                    coin: "BTC".into(),
-                    size: 0.1,
-                    entry_px: 60000.0,
-                    unrealized_pnl: 0.0,
-                    leverage: 10.0,
-                    liquidation_px: None,
-                },
-            ],
+            equity: Decimal::from_str("100000.0").unwrap(),
+            margin_available: Decimal::from_str("50000.0").unwrap(),
+            positions: vec![HlPosition {
+                coin: "BTC".into(),
+                size: Decimal::from_str("0.1").unwrap(),
+                entry_px: Decimal::from_str("60000.0").unwrap(),
+                unrealized_pnl: Decimal::ZERO,
+                leverage: Decimal::from_str("10.0").unwrap(),
+                liquidation_px: None,
+            }],
         };
         let json = serde_json::to_string(&state).unwrap();
         let parsed: HlAccountState = serde_json::from_str(&json).unwrap();
-        assert!((parsed.equity - 100000.0).abs() < f64::EPSILON);
-        assert!((parsed.margin_available - 50000.0).abs() < f64::EPSILON);
+        assert_eq!(parsed.equity, Decimal::from_str("100000.0").unwrap());
+        assert_eq!(
+            parsed.margin_available,
+            Decimal::from_str("50000.0").unwrap()
+        );
         assert_eq!(parsed.positions.len(), 1);
         assert_eq!(parsed.positions[0].coin, "BTC");
     }
@@ -171,8 +177,8 @@ mod tests {
     #[test]
     fn account_state_empty_positions_roundtrip() {
         let state = HlAccountState {
-            equity: 0.0,
-            margin_available: 0.0,
+            equity: Decimal::ZERO,
+            margin_available: Decimal::ZERO,
             positions: vec![],
         };
         let json = serde_json::to_string(&state).unwrap();
@@ -183,8 +189,8 @@ mod tests {
     #[test]
     fn account_state_camel_case_keys() {
         let state = HlAccountState {
-            equity: 1.0,
-            margin_available: 1.0,
+            equity: Decimal::ONE,
+            margin_available: Decimal::ONE,
             positions: vec![],
         };
         let json = serde_json::to_string(&state).unwrap();
