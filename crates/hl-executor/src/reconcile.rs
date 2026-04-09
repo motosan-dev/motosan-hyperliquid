@@ -10,9 +10,20 @@
 //! *should* be taken; the caller decides how to apply them.
 
 use std::collections::HashMap;
+use std::str::FromStr;
+
+use rust_decimal::Decimal;
 
 use hl_client::HyperliquidClient;
 use hl_types::HlError;
+
+/// A small threshold used to detect zero-size (closed) positions.
+const ZERO_SIZE_THRESHOLD: Decimal = Decimal::from_parts(1, 0, 0, false, 12); // 1e-12
+
+/// The relative tolerance used when comparing local vs exchange sizes.
+///
+/// Size differences within 0.1% of the exchange size are not flagged.
+const SIZE_TOLERANCE_BPS: Decimal = Decimal::from_parts(1, 0, 0, false, 3); // 0.001
 
 /// A position tracked by the caller (e.g. from a local database).
 #[derive(Debug, Clone)]
@@ -21,7 +32,7 @@ pub struct LocalPosition {
     pub coin: String,
     /// `"long"` or `"short"`.
     pub side: String,
-    pub size: f64,
+    pub size: Decimal,
 }
 
 /// Summary of a single reconciliation action that should be taken.
@@ -34,14 +45,14 @@ pub enum ReconcileAction {
     AddedMissing {
         market: String,
         side: String,
-        size: f64,
-        entry_price: f64,
+        size: Decimal,
+        entry_price: Decimal,
     },
     /// A local position's size or side diverged from the exchange.
     Updated {
         market: String,
-        old_size: f64,
-        new_size: f64,
+        old_size: Decimal,
+        new_size: Decimal,
         old_side: String,
         new_side: String,
     },
@@ -60,8 +71,8 @@ pub struct ReconcileReport {
 struct ExchangePosition {
     market: String,
     side: String,
-    size: f64,
-    entry_price: f64,
+    size: Decimal,
+    entry_price: Decimal,
 }
 
 /// Parse the `clearinghouseState` JSON into a list of exchange positions.
@@ -70,11 +81,18 @@ fn parse_exchange_positions(resp: &serde_json::Value) -> Vec<ExchangePosition> {
     if let Some(asset_positions) = resp["assetPositions"].as_array() {
         for pos in asset_positions {
             let p = &pos["position"];
-            let size: f64 = p["szi"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
-            if size.abs() < 1e-12 {
+            let size: Decimal = p["szi"]
+                .as_str()
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or(Decimal::ZERO);
+            if size.abs() < ZERO_SIZE_THRESHOLD {
                 continue;
             }
-            let entry_price: f64 = p["entryPx"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+            let entry_price: Decimal = p["entryPx"]
+                .as_str()
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or(Decimal::ZERO);
             let coin = match p["coin"].as_str() {
                 Some(c) if !c.is_empty() => c,
                 _ => {
@@ -83,7 +101,7 @@ fn parse_exchange_positions(resp: &serde_json::Value) -> Vec<ExchangePosition> {
                 }
             };
             let market = format!("{}-PERP", coin);
-            let side = if size > 0.0 {
+            let side = if size > Decimal::ZERO {
                 "long".to_string()
             } else {
                 "short".to_string()
@@ -140,18 +158,21 @@ pub async fn reconcile_positions(
     let mut local_by_market: HashMap<String, &LocalPosition> = HashMap::new();
     for p in local {
         let market = format!("{}-PERP", p.coin.to_uppercase());
-        if local_by_market.contains_key(&market) {
-            tracing::warn!(
-                market = %market,
-                duplicate_id = %p.id,
-                "Duplicate local position for same market — marking as stale"
-            );
-            actions.push(ReconcileAction::ClosedStale {
-                id: p.id.clone(),
-                market: market.clone(),
-            });
-        } else {
-            local_by_market.insert(market, p);
+        match local_by_market.entry(market.clone()) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                tracing::warn!(
+                    market = %market,
+                    duplicate_id = %p.id,
+                    "Duplicate local position for same market — marking as stale"
+                );
+                actions.push(ReconcileAction::ClosedStale {
+                    id: p.id.clone(),
+                    market,
+                });
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(p);
+            }
         }
     }
 
@@ -191,7 +212,7 @@ pub async fn reconcile_positions(
             Some(local_pos) => {
                 // Both exist — check if size or side diverged
                 let size_diff = (local_pos.size - ep.size).abs();
-                let threshold = ep.size * 0.001; // 0.1% tolerance
+                let threshold = ep.size * SIZE_TOLERANCE_BPS; // 0.1% tolerance
                 let side_changed = local_pos.side != ep.side;
                 if size_diff > threshold || side_changed {
                     tracing::info!(
@@ -260,14 +281,14 @@ mod tests {
         let btc = &positions[0];
         assert_eq!(btc.market, "BTC-PERP");
         assert_eq!(btc.side, "long");
-        assert!((btc.size - 0.5).abs() < 1e-12);
-        assert!((btc.entry_price - 60000.0).abs() < 1e-6);
+        assert_eq!(btc.size, Decimal::from_str("0.5").unwrap());
+        assert_eq!(btc.entry_price, Decimal::from_str("60000.0").unwrap());
 
         let eth = &positions[1];
         assert_eq!(eth.market, "ETH-PERP");
         assert_eq!(eth.side, "short");
-        assert!((eth.size - 2.0).abs() < 1e-12);
-        assert!((eth.entry_price - 3000.0).abs() < 1e-6);
+        assert_eq!(eth.size, Decimal::from_str("2.0").unwrap());
+        assert_eq!(eth.entry_price, Decimal::from_str("3000.0").unwrap());
     }
 
     #[test]
@@ -291,11 +312,11 @@ mod tests {
     fn side_mismatch_detected_same_size() {
         let local_side = "long";
         let exchange_side = "short";
-        let local_size: f64 = 1.0;
-        let exchange_size: f64 = 1.0;
+        let local_size = Decimal::ONE;
+        let exchange_size = Decimal::ONE;
 
         let size_diff = (local_size - exchange_size).abs();
-        let threshold = exchange_size * 0.001;
+        let threshold = exchange_size * SIZE_TOLERANCE_BPS;
         let side_changed = local_side != exchange_side;
 
         assert!(size_diff <= threshold, "sizes should be equal");
@@ -310,11 +331,11 @@ mod tests {
     fn no_divergence_when_same_side_and_size() {
         let local_side = "long";
         let exchange_side = "long";
-        let local_size: f64 = 1.0;
-        let exchange_size: f64 = 1.0;
+        let local_size = Decimal::ONE;
+        let exchange_size = Decimal::ONE;
 
         let size_diff = (local_size - exchange_size).abs();
-        let threshold = exchange_size * 0.001;
+        let threshold = exchange_size * SIZE_TOLERANCE_BPS;
         let side_changed = local_side != exchange_side;
 
         assert!(
@@ -351,13 +372,16 @@ mod tests {
         let mut local_by_market: HashMap<String, &LocalPosition> = HashMap::new();
         for p in local {
             let market = format!("{}-PERP", p.coin.to_uppercase());
-            if local_by_market.contains_key(&market) {
-                actions.push(ReconcileAction::ClosedStale {
-                    id: p.id.clone(),
-                    market: market.clone(),
-                });
-            } else {
-                local_by_market.insert(market, p);
+            match local_by_market.entry(market.clone()) {
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    actions.push(ReconcileAction::ClosedStale {
+                        id: p.id.clone(),
+                        market,
+                    });
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(p);
+                }
             }
         }
 
@@ -382,7 +406,7 @@ mod tests {
                 }
                 Some(local_pos) => {
                     let size_diff = (local_pos.size - ep.size).abs();
-                    let threshold = ep.size * 0.001;
+                    let threshold = ep.size * SIZE_TOLERANCE_BPS;
                     let side_changed = local_pos.side != ep.side;
                     if size_diff > threshold || side_changed {
                         actions.push(ReconcileAction::Updated {
@@ -415,11 +439,16 @@ mod tests {
         let actions = reconcile_local_vs_exchange(&local, &exchange);
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            ReconcileAction::AddedMissing { market, side, size, entry_price } => {
+            ReconcileAction::AddedMissing {
+                market,
+                side,
+                size,
+                entry_price,
+            } => {
                 assert_eq!(market, "BTC-PERP");
                 assert_eq!(side, "long");
-                assert!((size - 0.5).abs() < 1e-12);
-                assert!((entry_price - 60000.0).abs() < 1e-6);
+                assert_eq!(*size, Decimal::from_str("0.5").unwrap());
+                assert_eq!(*entry_price, Decimal::from_str("60000.0").unwrap());
             }
             other => panic!("Expected AddedMissing, got {:?}", other),
         }
@@ -431,7 +460,7 @@ mod tests {
             id: "pos-1".into(),
             coin: "ETH".into(),
             side: "long".into(),
-            size: 2.0,
+            size: Decimal::from_str("2.0").unwrap(),
         }];
         let exchange = serde_json::json!({
             "assetPositions": []
@@ -453,7 +482,7 @@ mod tests {
             id: "pos-2".into(),
             coin: "BTC".into(),
             side: "long".into(),
-            size: 1.0,
+            size: Decimal::ONE,
         }];
         let exchange = serde_json::json!({
             "assetPositions": [{
@@ -467,10 +496,16 @@ mod tests {
         let actions = reconcile_local_vs_exchange(&local, &exchange);
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            ReconcileAction::Updated { market, old_size, new_size, old_side, new_side } => {
+            ReconcileAction::Updated {
+                market,
+                old_size,
+                new_size,
+                old_side,
+                new_side,
+            } => {
                 assert_eq!(market, "BTC-PERP");
-                assert!((old_size - 1.0).abs() < 1e-12);
-                assert!((new_size - 0.5).abs() < 1e-12);
+                assert_eq!(*old_size, Decimal::ONE);
+                assert_eq!(*new_size, Decimal::from_str("0.5").unwrap());
                 assert_eq!(old_side, "long");
                 assert_eq!(new_side, "long");
             }
@@ -484,7 +519,7 @@ mod tests {
             id: "pos-3".into(),
             coin: "BTC".into(),
             side: "long".into(),
-            size: 1.0,
+            size: Decimal::ONE,
         }];
         let exchange = serde_json::json!({
             "assetPositions": [{
@@ -498,7 +533,9 @@ mod tests {
         let actions = reconcile_local_vs_exchange(&local, &exchange);
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            ReconcileAction::Updated { old_side, new_side, .. } => {
+            ReconcileAction::Updated {
+                old_side, new_side, ..
+            } => {
                 assert_eq!(old_side, "long");
                 assert_eq!(new_side, "short");
             }
@@ -512,7 +549,7 @@ mod tests {
             id: "pos-4".into(),
             coin: "BTC".into(),
             side: "long".into(),
-            size: 0.5,
+            size: Decimal::from_str("0.5").unwrap(),
         }];
         let exchange = serde_json::json!({
             "assetPositions": [{
@@ -540,8 +577,18 @@ mod tests {
     #[test]
     fn reconcile_duplicate_local_positions_marked_stale() {
         let local = vec![
-            LocalPosition { id: "pos-a".into(), coin: "BTC".into(), side: "long".into(), size: 0.5 },
-            LocalPosition { id: "pos-b".into(), coin: "BTC".into(), side: "long".into(), size: 0.3 },
+            LocalPosition {
+                id: "pos-a".into(),
+                coin: "BTC".into(),
+                side: "long".into(),
+                size: Decimal::from_str("0.5").unwrap(),
+            },
+            LocalPosition {
+                id: "pos-b".into(),
+                coin: "BTC".into(),
+                side: "long".into(),
+                size: Decimal::from_str("0.3").unwrap(),
+            },
         ];
         let exchange = serde_json::json!({
             "assetPositions": [{
@@ -553,8 +600,14 @@ mod tests {
             }]
         });
         let actions = reconcile_local_vs_exchange(&local, &exchange);
-        let stale_count = actions.iter().filter(|a| matches!(a, ReconcileAction::ClosedStale { .. })).count();
-        assert_eq!(stale_count, 1, "Duplicate local position should be marked stale");
+        let stale_count = actions
+            .iter()
+            .filter(|a| matches!(a, ReconcileAction::ClosedStale { .. }))
+            .count();
+        assert_eq!(
+            stale_count, 1,
+            "Duplicate local position should be marked stale"
+        );
     }
 
     #[test]
@@ -564,7 +617,7 @@ mod tests {
             id: "pos-5".into(),
             coin: "BTC".into(),
             side: "long".into(),
-            size: 1.0005, // ~0.05% diff from 1.0
+            size: Decimal::from_str("1.0005").unwrap(), // ~0.05% diff from 1.0
         }];
         let exchange = serde_json::json!({
             "assetPositions": [{
@@ -576,6 +629,10 @@ mod tests {
             }]
         });
         let actions = reconcile_local_vs_exchange(&local, &exchange);
-        assert!(actions.is_empty(), "Small size diff within tolerance should produce no action, got {:?}", actions);
+        assert!(
+            actions.is_empty(),
+            "Small size diff within tolerance should produce no action, got {:?}",
+            actions
+        );
     }
 }

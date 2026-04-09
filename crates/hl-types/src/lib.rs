@@ -23,5 +23,6 @@ pub use error::HlError;
 pub use market::{HlAssetInfo, HlFundingRate, HlOrderbook};
 pub use order::{LimitOrderType, OrderTypeWire, OrderWire, TriggerOrderType};
 pub use response::OrderResponse;
+pub use rust_decimal::Decimal;
 pub use signature::Signature;
 pub use util::normalize_coin;

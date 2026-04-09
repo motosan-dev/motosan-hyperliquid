@@ -1,3 +1,6 @@
+use rust_decimal::Decimal;
+use std::str::FromStr;
+
 use hl_client::HyperliquidClient;
 use hl_types::{normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook};
 
@@ -68,12 +71,12 @@ impl MarketData {
     /// Compute the mid-price for a coin from its current orderbook.
     ///
     /// Returns `Err` if either the bid or ask side of the book is empty.
-    pub async fn mid_price(&self, coin: &str) -> Result<f64, HlError> {
+    pub async fn mid_price(&self, coin: &str) -> Result<Decimal, HlError> {
         let book = self.orderbook(coin).await?;
         let best_bid = book.bids.first().map(|(p, _)| *p);
         let best_ask = book.asks.first().map(|(p, _)| *p);
         match (best_bid, best_ask) {
-            (Some(bid), Some(ask)) => Ok((bid + ask) / 2.0),
+            (Some(bid), Some(ask)) => Ok((bid + ask) / Decimal::TWO),
             _ => Err(HlError::Parse(format!(
                 "empty orderbook for {coin}, cannot compute mid price"
             ))),
@@ -85,17 +88,19 @@ impl MarketData {
 // Parsing helpers
 // ---------------------------------------------------------------------------
 
-/// Parse a JSON value that might be a string-encoded float or a number.
+/// Parse a JSON value that might be a string-encoded decimal or a number.
 ///
-/// Returns an error if the value is missing, null, or not parseable as `f64`.
-fn parse_str_f64(val: Option<&serde_json::Value>, field: &str) -> Result<f64, HlError> {
+/// Returns an error if the value is missing, null, or not parseable as `Decimal`.
+fn parse_str_decimal(val: Option<&serde_json::Value>, field: &str) -> Result<Decimal, HlError> {
     match val {
-        Some(serde_json::Value::String(s)) => s
-            .parse::<f64>()
-            .map_err(|_| parse_err(format!("cannot parse '{field}' value \"{s}\" as f64"))),
-        Some(serde_json::Value::Number(n)) => n
-            .as_f64()
-            .ok_or_else(|| parse_err(format!("cannot convert '{field}' number to f64"))),
+        Some(serde_json::Value::String(s)) => Decimal::from_str(s)
+            .map_err(|_| parse_err(format!("cannot parse '{field}' value \"{s}\" as Decimal"))),
+        Some(serde_json::Value::Number(n)) => {
+            // Convert via the string representation to preserve precision
+            let s = n.to_string();
+            Decimal::from_str(&s)
+                .map_err(|_| parse_err(format!("cannot convert '{field}' number to Decimal")))
+        }
         Some(v) => Err(parse_err(format!(
             "unexpected type for '{field}': expected string or number, got {v}"
         ))),
@@ -128,12 +133,12 @@ pub fn parse_candles(response: &serde_json::Value, limit: usize) -> Result<Vec<H
 
         candles.push(HlCandle {
             timestamp: time_ms,
-            open: parse_str_f64(item.get("o"), "o")?,
-            high: parse_str_f64(item.get("h"), "h")?,
-            low: parse_str_f64(item.get("l"), "l")?,
-            close: parse_str_f64(item.get("c"), "c")?,
+            open: parse_str_decimal(item.get("o"), "o")?,
+            high: parse_str_decimal(item.get("h"), "h")?,
+            low: parse_str_decimal(item.get("l"), "l")?,
+            close: parse_str_decimal(item.get("c"), "c")?,
             // Volume of 0 is valid (no trades in interval), so treat missing as 0.
-            volume: parse_str_f64(item.get("v"), "v").unwrap_or(0.0),
+            volume: parse_str_decimal(item.get("v"), "v").unwrap_or(Decimal::ZERO),
         });
     }
 
@@ -163,16 +168,16 @@ pub fn parse_orderbook(response: &serde_json::Value, coin: &str) -> Result<HlOrd
         return Err(parse_err("l2Book 'levels' array has fewer than 2 entries"));
     }
 
-    let parse_levels = |arr: &serde_json::Value| -> Result<Vec<(f64, f64)>, HlError> {
+    let parse_levels = |arr: &serde_json::Value| -> Result<Vec<(Decimal, Decimal)>, HlError> {
         let entries = arr
             .as_array()
             .ok_or_else(|| parse_err("orderbook level is not an array"))?;
         let mut result = Vec::with_capacity(entries.len());
         for entry in entries {
-            let px = parse_str_f64(entry.get("px"), "px")?;
+            let px = parse_str_decimal(entry.get("px"), "px")?;
             // Size of 0 is valid (empty level), but skip zero-price entries.
-            let sz = parse_str_f64(entry.get("sz"), "sz").unwrap_or(0.0);
-            if px > 0.0 {
+            let sz = parse_str_decimal(entry.get("sz"), "sz").unwrap_or(Decimal::ZERO);
+            if px > Decimal::ZERO {
                 result.push((px, sz));
             }
         }
@@ -255,9 +260,9 @@ pub fn parse_asset_info(response: &serde_json::Value) -> Result<Vec<HlAssetInfo>
 
         // Minimum order size = 1 * 10^(-sz_decimals)
         let min_size = if sz_decimals == 0 {
-            1.0
+            Decimal::ONE
         } else {
-            10_f64.powi(-(sz_decimals as i32))
+            Decimal::ONE / Decimal::from(10u64.pow(sz_decimals))
         };
 
         result.push(HlAssetInfo {
@@ -308,7 +313,7 @@ pub fn parse_funding_rates(response: &serde_json::Value) -> Result<Vec<HlFunding
             .unwrap_or("")
             .to_string();
 
-        let funding_rate = parse_str_f64(ctx.get("funding"), "funding")?;
+        let funding_rate = parse_str_decimal(ctx.get("funding"), "funding")?;
 
         let next_funding_time = ctx
             .get("nextFundingTime")
@@ -372,11 +377,11 @@ mod tests {
 
         let candles = parse_candles(&json, 10).unwrap();
         assert_eq!(candles.len(), 2);
-        assert_eq!(candles[0].open, 94200.0);
-        assert_eq!(candles[0].close, 95234.0);
-        assert_eq!(candles[0].high, 95400.0);
-        assert_eq!(candles[0].low, 93800.0);
-        assert_eq!(candles[0].volume, 12400.5);
+        assert_eq!(candles[0].open, Decimal::from_str("94200.0").unwrap());
+        assert_eq!(candles[0].close, Decimal::from_str("95234.0").unwrap());
+        assert_eq!(candles[0].high, Decimal::from_str("95400.0").unwrap());
+        assert_eq!(candles[0].low, Decimal::from_str("93800.0").unwrap());
+        assert_eq!(candles[0].volume, Decimal::from_str("12400.5").unwrap());
         assert_eq!(candles[0].timestamp, 1709985600000);
     }
 
@@ -426,8 +431,8 @@ mod tests {
         assert_eq!(book.coin, "BTC");
         assert_eq!(book.bids.len(), 2);
         assert_eq!(book.asks.len(), 2);
-        assert_eq!(book.bids[0].0, 94000.0);
-        assert_eq!(book.asks[0].0, 94001.0);
+        assert_eq!(book.bids[0].0, Decimal::from_str("94000.0").unwrap());
+        assert_eq!(book.asks[0].0, Decimal::from_str("94001.0").unwrap());
         assert_eq!(book.timestamp, 1709985600000);
     }
 
@@ -464,21 +469,27 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_str_f64_string_value() {
+    fn test_parse_str_decimal_string_value() {
         let v = serde_json::json!("123.45");
-        assert_eq!(parse_str_f64(Some(&v), "test").unwrap(), 123.45);
+        assert_eq!(
+            parse_str_decimal(Some(&v), "test").unwrap(),
+            Decimal::from_str("123.45").unwrap()
+        );
     }
 
     #[test]
-    fn test_parse_str_f64_number_value() {
+    fn test_parse_str_decimal_number_value() {
         let v = serde_json::json!(42.0);
-        assert_eq!(parse_str_f64(Some(&v), "test").unwrap(), 42.0);
+        assert_eq!(
+            parse_str_decimal(Some(&v), "test").unwrap(),
+            Decimal::from_str("42.0").unwrap()
+        );
     }
 
     #[test]
-    fn test_parse_str_f64_invalid_string() {
+    fn test_parse_str_decimal_invalid_string() {
         let v = serde_json::json!("not_a_number");
-        let err = parse_str_f64(Some(&v), "price").unwrap_err();
+        let err = parse_str_decimal(Some(&v), "price").unwrap_err();
         let msg = format!("{err}");
         assert!(
             msg.contains("price"),
@@ -487,14 +498,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_str_f64_null() {
+    fn test_parse_str_decimal_null() {
         let v = serde_json::Value::Null;
-        assert!(parse_str_f64(Some(&v), "test").is_err());
+        assert!(parse_str_decimal(Some(&v), "test").is_err());
     }
 
     #[test]
-    fn test_parse_str_f64_missing() {
-        assert!(parse_str_f64(None, "test").is_err());
+    fn test_parse_str_decimal_missing() {
+        assert!(parse_str_decimal(None, "test").is_err());
     }
 
     #[test]
@@ -536,7 +547,7 @@ mod tests {
             // "v" missing — should default to 0.0
         }]);
         let candles = parse_candles(&json, 10).unwrap();
-        assert_eq!(candles[0].volume, 0.0);
+        assert_eq!(candles[0].volume, Decimal::ZERO);
     }
 
     #[test]
@@ -568,9 +579,12 @@ mod tests {
         let rates = parse_funding_rates(&json).unwrap();
         assert_eq!(rates.len(), 2);
         assert_eq!(rates[0].coin, "BTC");
-        assert_eq!(rates[0].funding_rate, 0.0001);
+        assert_eq!(rates[0].funding_rate, Decimal::from_str("0.0001").unwrap());
         assert_eq!(rates[0].next_funding_time, 1709989200000);
         assert_eq!(rates[1].coin, "ETH");
-        assert_eq!(rates[1].funding_rate, -0.00005);
+        assert_eq!(
+            rates[1].funding_rate,
+            Decimal::from_str("-0.00005").unwrap()
+        );
     }
 }

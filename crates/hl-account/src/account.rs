@@ -1,3 +1,6 @@
+use rust_decimal::Decimal;
+use std::str::FromStr;
+
 use hl_client::HyperliquidClient;
 use hl_types::{HlAccountState, HlError, HlFill, HlPosition};
 
@@ -71,21 +74,26 @@ impl Account {
     }
 }
 
-/// Parse a string-encoded float from a JSON value, returning an error on failure.
-fn parse_str_f64(val: &serde_json::Value, field: &str) -> Result<f64, HlError> {
+/// Parse a string-encoded decimal from a JSON value, returning an error on failure.
+fn parse_str_decimal(val: &serde_json::Value, field: &str) -> Result<Decimal, HlError> {
     match val {
-        serde_json::Value::String(s) => s
-            .parse::<f64>()
-            .map_err(|_| HlError::Parse(format!("cannot parse '{field}' value \"{s}\" as f64"))),
-        serde_json::Value::Number(n) => n
-            .as_f64()
-            .ok_or_else(|| HlError::Parse(format!("cannot convert '{field}' number to f64"))),
+        serde_json::Value::String(s) => Decimal::from_str(s).map_err(|_| {
+            HlError::Parse(format!("cannot parse '{field}' value \"{s}\" as Decimal"))
+        }),
+        serde_json::Value::Number(n) => {
+            let s = n.to_string();
+            Decimal::from_str(&s)
+                .map_err(|_| HlError::Parse(format!("cannot convert '{field}' number to Decimal")))
+        }
         serde_json::Value::Null => Err(HlError::Parse(format!("field '{field}' is null"))),
         v => Err(HlError::Parse(format!(
             "unexpected type for '{field}': expected string or number, got {v}"
         ))),
     }
 }
+
+/// A small threshold used to detect zero-size (closed) positions.
+const ZERO_SIZE_THRESHOLD: Decimal = Decimal::from_parts(1, 0, 0, false, 12); // 1e-12
 
 /// Parse a `clearinghouseState` JSON response into an [`HlAccountState`].
 ///
@@ -96,14 +104,14 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
         .get("marginSummary")
         .ok_or_else(|| HlError::Parse("missing 'marginSummary' in clearinghouseState".into()))?;
 
-    let equity: f64 = parse_str_f64(
+    let equity: Decimal = parse_str_decimal(
         margin_summary
             .get("accountValue")
             .ok_or_else(|| HlError::Parse("missing 'accountValue' in marginSummary".into()))?,
         "accountValue",
     )?;
 
-    let margin_available: f64 = {
+    let margin_available: Decimal = {
         let raw = margin_summary
             .get("totalRawUsd")
             .or_else(|| margin_summary.get("availableMargin"))
@@ -112,7 +120,7 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
                     "missing 'totalRawUsd' and 'availableMargin' in marginSummary".into(),
                 )
             })?;
-        parse_str_f64(raw, "totalRawUsd/availableMargin")?
+        parse_str_decimal(raw, "totalRawUsd/availableMargin")?
     };
 
     let mut positions = Vec::new();
@@ -123,12 +131,12 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
 
             // Size: parse with error propagation. A size of 0.0 is valid
             // (means the position is closed), so we skip it rather than error.
-            let size: f64 = parse_str_f64(
+            let size: Decimal = parse_str_decimal(
                 p.get("szi")
                     .ok_or_else(|| HlError::Parse("missing 'szi' in position".into()))?,
                 "szi",
             )?;
-            if size.abs() < 1e-12 {
+            if size.abs() < ZERO_SIZE_THRESHOLD {
                 continue;
             }
 
@@ -140,25 +148,25 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
                 }
             };
 
-            let entry_px: f64 = parse_str_f64(
+            let entry_px: Decimal = parse_str_decimal(
                 p.get("entryPx")
                     .ok_or_else(|| HlError::Parse("missing 'entryPx' in position".into()))?,
                 "entryPx",
             )?;
-            let unrealized_pnl: f64 = parse_str_f64(
+            let unrealized_pnl: Decimal = parse_str_decimal(
                 p.get("unrealizedPnl")
                     .ok_or_else(|| HlError::Parse("missing 'unrealizedPnl' in position".into()))?,
                 "unrealizedPnl",
             )?;
-            let leverage: f64 = match p.get("leverage").and_then(|l| l.get("value")) {
-                Some(v) => parse_str_f64(v, "leverage.value")
+            let leverage: Decimal = match p.get("leverage").and_then(|l| l.get("value")) {
+                Some(v) => parse_str_decimal(v, "leverage.value")
                     // Leverage defaults to 1.0 if unparseable (cross-margin mode).
-                    .unwrap_or(1.0),
-                None => 1.0,
+                    .unwrap_or(Decimal::ONE),
+                None => Decimal::ONE,
             };
-            let liquidation_px: Option<f64> = match p.get("liquidationPx") {
+            let liquidation_px: Option<Decimal> = match p.get("liquidationPx") {
                 Some(serde_json::Value::Null) | None => None,
-                Some(v) => Some(parse_str_f64(v, "liquidationPx")?),
+                Some(v) => Some(parse_str_decimal(v, "liquidationPx")?),
             };
 
             positions.push(HlPosition {
@@ -199,12 +207,12 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
             }
         };
 
-        let px: f64 = parse_str_f64(
+        let px: Decimal = parse_str_decimal(
             fill.get("px")
                 .ok_or_else(|| HlError::Parse("missing 'px' in fill".into()))?,
             "px",
         )?;
-        let sz: f64 = parse_str_f64(
+        let sz: Decimal = parse_str_decimal(
             fill.get("sz")
                 .ok_or_else(|| HlError::Parse("missing 'sz' in fill".into()))?,
             "sz",
@@ -218,15 +226,15 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
             .get("time")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| HlError::Parse("missing or invalid 'time' in fill".into()))?;
-        let fee: f64 = parse_str_f64(
+        let fee: Decimal = parse_str_decimal(
             fill.get("fee")
                 .ok_or_else(|| HlError::Parse("missing 'fee' in fill".into()))?,
             "fee",
         )?;
         // closedPnl may be 0.0 legitimately (no realized PnL), default to 0.0 if missing.
-        let closed_pnl: f64 = match fill.get("closedPnl") {
-            Some(v) => parse_str_f64(v, "closedPnl")?,
-            None => 0.0,
+        let closed_pnl: Decimal = match fill.get("closedPnl") {
+            Some(v) => parse_str_decimal(v, "closedPnl")?,
+            None => Decimal::ZERO,
         };
 
         fills.push(HlFill {
@@ -292,7 +300,7 @@ mod tests {
     fn parse_account_state_equity() {
         let resp = make_clearinghouse_resp();
         let state = parse_account_state(&resp).unwrap();
-        assert_eq!(state.equity, 50000.0);
+        assert_eq!(state.equity, Decimal::from_str("50000.00").unwrap());
     }
 
     #[test]
@@ -309,11 +317,14 @@ mod tests {
         let resp = make_clearinghouse_resp();
         let state = parse_account_state(&resp).unwrap();
         let btc = state.positions.iter().find(|p| p.coin == "BTC").unwrap();
-        assert!((btc.size - 0.5).abs() < 1e-9);
-        assert!((btc.entry_px - 60000.0).abs() < 1e-9);
-        assert!((btc.unrealized_pnl - (-200.0)).abs() < 1e-9);
-        assert!((btc.leverage - 5.0).abs() < 1e-9);
-        assert_eq!(btc.liquidation_px, Some(55000.0));
+        assert_eq!(btc.size, Decimal::from_str("0.5").unwrap());
+        assert_eq!(btc.entry_px, Decimal::from_str("60000.0").unwrap());
+        assert_eq!(btc.unrealized_pnl, Decimal::from_str("-200.0").unwrap());
+        assert_eq!(btc.leverage, Decimal::from_str("5").unwrap());
+        assert_eq!(
+            btc.liquidation_px,
+            Some(Decimal::from_str("55000.0").unwrap())
+        );
     }
 
     #[test]
@@ -321,7 +332,7 @@ mod tests {
         let resp = make_clearinghouse_resp();
         let state = parse_account_state(&resp).unwrap();
         let eth = state.positions.iter().find(|p| p.coin == "ETH").unwrap();
-        assert!((eth.size - (-2.0)).abs() < 1e-9);
+        assert_eq!(eth.size, Decimal::from_str("-2.0").unwrap());
         assert!(eth.liquidation_px.is_none());
     }
 
@@ -354,17 +365,17 @@ mod tests {
 
         let btc = &fills[0];
         assert_eq!(btc.coin, "BTC");
-        assert!((btc.px - 60100.5).abs() < 1e-9);
-        assert!((btc.sz - 0.1).abs() < 1e-9);
+        assert_eq!(btc.px, Decimal::from_str("60100.5").unwrap());
+        assert_eq!(btc.sz, Decimal::from_str("0.1").unwrap());
         assert!(btc.is_buy);
         assert_eq!(btc.timestamp, now_ms);
-        assert!((btc.fee - 1.50).abs() < 1e-9);
-        assert!((btc.closed_pnl - 0.0).abs() < 1e-9);
+        assert_eq!(btc.fee, Decimal::from_str("1.50").unwrap());
+        assert_eq!(btc.closed_pnl, Decimal::ZERO);
 
         let eth = &fills[1];
         assert_eq!(eth.coin, "ETH");
         assert!(!eth.is_buy);
-        assert!((eth.closed_pnl - (-50.0)).abs() < 1e-9);
+        assert_eq!(eth.closed_pnl, Decimal::from_str("-50.0").unwrap());
     }
 
     #[test]
@@ -471,6 +482,6 @@ mod tests {
         }]);
         let fills = parse_fills(&resp).unwrap();
         assert_eq!(fills.len(), 1);
-        assert!((fills[0].closed_pnl - 0.0).abs() < 1e-9);
+        assert_eq!(fills[0].closed_pnl, Decimal::ZERO);
     }
 }

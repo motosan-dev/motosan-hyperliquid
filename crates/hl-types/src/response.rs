@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// Response returned after placing an order.
@@ -7,11 +8,11 @@ pub struct OrderResponse {
     /// Exchange-assigned order identifier.
     pub order_id: String,
     /// Price at which the order was (partially) filled, if any.
-    pub filled_price: Option<f64>,
+    pub filled_price: Option<Decimal>,
     /// Size that was filled.
-    pub filled_size: f64,
+    pub filled_size: Decimal,
     /// Size that was originally requested.
-    pub requested_size: f64,
+    pub requested_size: Decimal,
     /// Order status (e.g. "filled", "partial", "open", "rejected").
     pub status: String,
 }
@@ -19,22 +20,26 @@ pub struct OrderResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn order_response_serde_roundtrip() {
         let resp = OrderResponse {
             order_id: "abc123".into(),
-            filled_price: Some(50000.0),
-            filled_size: 0.1,
-            requested_size: 0.1,
+            filled_price: Some(Decimal::from_str("50000.0").unwrap()),
+            filled_size: Decimal::from_str("0.1").unwrap(),
+            requested_size: Decimal::from_str("0.1").unwrap(),
             status: "filled".into(),
         };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: OrderResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.order_id, "abc123");
-        assert!((parsed.filled_price.unwrap() - 50000.0).abs() < f64::EPSILON);
-        assert!((parsed.filled_size - 0.1).abs() < f64::EPSILON);
-        assert!((parsed.requested_size - 0.1).abs() < f64::EPSILON);
+        assert_eq!(
+            parsed.filled_price,
+            Some(Decimal::from_str("50000.0").unwrap())
+        );
+        assert_eq!(parsed.filled_size, Decimal::from_str("0.1").unwrap());
+        assert_eq!(parsed.requested_size, Decimal::from_str("0.1").unwrap());
         assert_eq!(parsed.status, "filled");
     }
 
@@ -43,8 +48,8 @@ mod tests {
         let resp = OrderResponse {
             order_id: "xyz".into(),
             filled_price: None,
-            filled_size: 0.0,
-            requested_size: 1.0,
+            filled_size: Decimal::ZERO,
+            requested_size: Decimal::ONE,
             status: "open".into(),
         };
         let json = serde_json::to_string(&resp).unwrap();
@@ -58,8 +63,8 @@ mod tests {
         let resp = OrderResponse {
             order_id: "x".into(),
             filled_price: None,
-            filled_size: 0.0,
-            requested_size: 0.0,
+            filled_size: Decimal::ZERO,
+            requested_size: Decimal::ZERO,
             status: "x".into(),
         };
         let json = serde_json::to_string(&resp).unwrap();

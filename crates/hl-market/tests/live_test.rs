@@ -2,6 +2,7 @@
 
 use hl_client::HyperliquidClient;
 use hl_market::MarketData;
+use hl_types::Decimal;
 
 fn market() -> MarketData {
     let client = HyperliquidClient::testnet().unwrap();
@@ -18,9 +19,9 @@ async fn live_candles() {
     assert!(candles.len() <= 10, "should respect limit");
     // Verify candle fields are reasonable
     let c = &candles[0];
-    assert!(c.open > 0.0);
+    assert!(c.open > Decimal::ZERO);
     assert!(c.high >= c.low);
-    assert!(c.volume >= 0.0);
+    assert!(c.volume >= Decimal::ZERO);
 }
 
 #[tokio::test]
@@ -68,5 +69,5 @@ async fn live_mid_price() {
     let price = m.mid_price("BTC").await;
     assert!(price.is_ok(), "mid_price failed: {:?}", price.err());
     let price = price.unwrap();
-    assert!(price > 0.0, "BTC mid price should be positive");
+    assert!(price > Decimal::ZERO, "BTC mid price should be positive");
 }

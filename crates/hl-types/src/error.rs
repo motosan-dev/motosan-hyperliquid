@@ -54,21 +54,49 @@ mod tests {
 
     #[test]
     fn is_retryable_rate_limited() {
-        assert!(HlError::RateLimited { retry_after_ms: 1000, message: "slow down".into() }.is_retryable());
+        assert!(HlError::RateLimited {
+            retry_after_ms: 1000,
+            message: "slow down".into()
+        }
+        .is_retryable());
     }
 
     #[test]
     fn is_retryable_api_5xx() {
-        assert!(HlError::Api { status: 500, body: "internal error".into() }.is_retryable());
-        assert!(HlError::Api { status: 502, body: "bad gateway".into() }.is_retryable());
-        assert!(HlError::Api { status: 503, body: "unavailable".into() }.is_retryable());
+        assert!(HlError::Api {
+            status: 500,
+            body: "internal error".into()
+        }
+        .is_retryable());
+        assert!(HlError::Api {
+            status: 502,
+            body: "bad gateway".into()
+        }
+        .is_retryable());
+        assert!(HlError::Api {
+            status: 503,
+            body: "unavailable".into()
+        }
+        .is_retryable());
     }
 
     #[test]
     fn not_retryable_api_4xx() {
-        assert!(!HlError::Api { status: 400, body: "bad request".into() }.is_retryable());
-        assert!(!HlError::Api { status: 404, body: "not found".into() }.is_retryable());
-        assert!(!HlError::Api { status: 422, body: "unprocessable".into() }.is_retryable());
+        assert!(!HlError::Api {
+            status: 400,
+            body: "bad request".into()
+        }
+        .is_retryable());
+        assert!(!HlError::Api {
+            status: 404,
+            body: "not found".into()
+        }
+        .is_retryable());
+        assert!(!HlError::Api {
+            status: 422,
+            body: "unprocessable".into()
+        }
+        .is_retryable());
     }
 
     #[test]
@@ -93,7 +121,10 @@ mod tests {
 
     #[test]
     fn retry_after_ms_rate_limited() {
-        let err = HlError::RateLimited { retry_after_ms: 5000, message: "".into() };
+        let err = HlError::RateLimited {
+            retry_after_ms: 5000,
+            message: "".into(),
+        };
         assert_eq!(err.retry_after_ms(), Some(5000));
     }
 
@@ -102,7 +133,14 @@ mod tests {
         assert_eq!(HlError::Http("x".into()).retry_after_ms(), None);
         assert_eq!(HlError::Signing("x".into()).retry_after_ms(), None);
         assert_eq!(HlError::Parse("x".into()).retry_after_ms(), None);
-        assert_eq!(HlError::Api { status: 500, body: "x".into() }.retry_after_ms(), None);
+        assert_eq!(
+            HlError::Api {
+                status: 500,
+                body: "x".into()
+            }
+            .retry_after_ms(),
+            None
+        );
     }
 
     #[test]
@@ -110,10 +148,16 @@ mod tests {
         let err = HlError::Http("connection refused".into());
         assert_eq!(format!("{err}"), "HTTP error: connection refused");
 
-        let err = HlError::Api { status: 404, body: "not found".into() };
+        let err = HlError::Api {
+            status: 404,
+            body: "not found".into(),
+        };
         assert_eq!(format!("{err}"), "API error (HTTP 404): not found");
 
-        let err = HlError::RateLimited { retry_after_ms: 2000, message: "slow".into() };
+        let err = HlError::RateLimited {
+            retry_after_ms: 2000,
+            message: "slow".into(),
+        };
         assert!(format!("{err}").contains("2000ms"));
     }
 }
