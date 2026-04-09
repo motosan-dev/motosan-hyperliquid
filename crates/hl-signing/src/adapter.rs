@@ -79,9 +79,7 @@ mod tests {
 
     impl Signer for FailingSigner {
         fn sign_hash(&self, _address: &str, _hash: &[u8; 32]) -> Result<[u8; 65], HlError> {
-            Err(HlError::Signing(
-                "simulated key failure".to_string(),
-            ))
+            Err(HlError::Signing("simulated key failure".to_string()))
         }
     }
 
@@ -206,11 +204,7 @@ mod tests {
         }
 
         impl Signer for RealSigner {
-            fn sign_hash(
-                &self,
-                _address: &str,
-                hash: &[u8; 32],
-            ) -> Result<[u8; 65], HlError> {
+            fn sign_hash(&self, _address: &str, hash: &[u8; 32]) -> Result<[u8; 65], HlError> {
                 let (signature, recovery_id): (k256::ecdsa::Signature, RecoveryId) = self
                     .key
                     .sign_prehash(hash)

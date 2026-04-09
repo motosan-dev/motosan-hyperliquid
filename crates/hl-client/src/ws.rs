@@ -168,9 +168,10 @@ impl HyperliquidWs {
 
     /// Send a raw JSON message over the WebSocket.
     async fn send_raw(&mut self, msg: &serde_json::Value) -> Result<(), HlError> {
-        let stream = self.stream.as_mut().ok_or_else(|| {
-            HlError::Http("WebSocket not connected".to_string())
-        })?;
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| HlError::Http("WebSocket not connected".to_string()))?;
 
         let text = msg.to_string();
         stream

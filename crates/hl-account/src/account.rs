@@ -34,10 +34,7 @@ impl Account {
     }
 
     /// Fetch vault summaries for an address.
-    pub async fn vault_summaries(
-        &self,
-        address: &str,
-    ) -> Result<Vec<serde_json::Value>, HlError> {
+    pub async fn vault_summaries(&self, address: &str) -> Result<Vec<serde_json::Value>, HlError> {
         let payload = serde_json::json!({ "type": "vaultSummaries", "user": address });
         let resp = self.client.post_info(payload).await?;
         resp.as_array()
@@ -60,10 +57,7 @@ impl Account {
     }
 
     /// Fetch extra (sub-)agent approvals for an address.
-    pub async fn extra_agents(
-        &self,
-        address: &str,
-    ) -> Result<Vec<serde_json::Value>, HlError> {
+    pub async fn extra_agents(&self, address: &str) -> Result<Vec<serde_json::Value>, HlError> {
         let payload = serde_json::json!({ "type": "extraAgents", "user": address });
         let resp = self.client.post_info(payload).await?;
         resp.as_array()
@@ -117,17 +111,14 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
                 .unwrap_or("0")
                 .parse()
                 .unwrap_or(0.0);
-            let leverage: f64 = p["leverage"]["value"]
-                .as_f64()
-                .unwrap_or_else(|| {
-                    p["leverage"]["value"]
-                        .as_str()
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or(1.0)
-                });
-            let liquidation_px: Option<f64> = p["liquidationPx"]
-                .as_str()
-                .and_then(|s| s.parse().ok());
+            let leverage: f64 = p["leverage"]["value"].as_f64().unwrap_or_else(|| {
+                p["leverage"]["value"]
+                    .as_str()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(1.0)
+            });
+            let liquidation_px: Option<f64> =
+                p["liquidationPx"].as_str().and_then(|s| s.parse().ok());
 
             positions.push(HlPosition {
                 coin,
@@ -152,7 +143,9 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
 /// Hyperliquid returns numeric fields as quoted strings.
 /// The `side` field is `"B"` (buy) or `"A"` (ask/sell).
 pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
-    let arr = resp.as_array().ok_or_else(|| HlError::Parse("expected array for userFills".into()))?;
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for userFills".into()))?;
 
     let mut fills = Vec::with_capacity(arr.len());
 

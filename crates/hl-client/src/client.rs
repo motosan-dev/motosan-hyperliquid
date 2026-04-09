@@ -41,10 +41,7 @@ impl HyperliquidClient {
     }
 
     /// Create a new client with a custom retry configuration and default timeouts.
-    pub fn with_retry_config(
-        is_mainnet: bool,
-        retry_config: RetryConfig,
-    ) -> Result<Self, HlError> {
+    pub fn with_retry_config(is_mainnet: bool, retry_config: RetryConfig) -> Result<Self, HlError> {
         Self::with_config(is_mainnet, retry_config, TimeoutConfig::default())
     }
 
@@ -177,12 +174,11 @@ impl HyperliquidClient {
 
         for attempt in 0..=self.retry_config.max_retries {
             if attempt > 0 {
-                let delay =
-                    if let Some(HlError::RateLimited { retry_after_ms, .. }) = &last_error {
-                        Duration::from_millis(*retry_after_ms)
-                    } else {
-                        self.retry_config.delay_for_attempt(attempt - 1)
-                    };
+                let delay = if let Some(HlError::RateLimited { retry_after_ms, .. }) = &last_error {
+                    Duration::from_millis(*retry_after_ms)
+                } else {
+                    self.retry_config.delay_for_attempt(attempt - 1)
+                };
 
                 tracing::warn!(
                     attempt = attempt,
@@ -206,9 +202,8 @@ impl HyperliquidClient {
         }
 
         // Should not reach here, but return last error if it does.
-        Err(last_error.unwrap_or_else(|| {
-            HlError::Http("Retry loop exhausted without error".into())
-        }))
+        Err(last_error
+            .unwrap_or_else(|| HlError::Http("Retry loop exhausted without error".into())))
     }
 
     /// Internal: perform a single POST request without retry.

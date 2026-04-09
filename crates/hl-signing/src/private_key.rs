@@ -1,5 +1,5 @@
-use hl_types::HlError;
 use crate::Signer;
+use hl_types::HlError;
 use k256::ecdsa::{signature::hazmat::PrehashSigner, SigningKey, VerifyingKey};
 use sha3::{Digest, Keccak256};
 
@@ -11,8 +11,8 @@ pub struct PrivateKeySigner {
 impl PrivateKeySigner {
     pub fn from_hex(key_hex: &str) -> Result<Self, HlError> {
         let stripped = key_hex.strip_prefix("0x").unwrap_or(key_hex);
-        let bytes = hex::decode(stripped)
-            .map_err(|e| HlError::Signing(format!("invalid hex: {e}")))?;
+        let bytes =
+            hex::decode(stripped).map_err(|e| HlError::Signing(format!("invalid hex: {e}")))?;
         let key = SigningKey::from_bytes(bytes.as_slice().into())
             .map_err(|e| HlError::Signing(format!("invalid key: {e}")))?;
         let vk = *key.verifying_key();
@@ -33,7 +33,9 @@ impl PrivateKeySigner {
 
 impl Signer for PrivateKeySigner {
     fn sign_hash(&self, _address: &str, hash: &[u8; 32]) -> Result<[u8; 65], HlError> {
-        let (sig, recovery_id) = self.key.sign_prehash(hash)
+        let (sig, recovery_id) = self
+            .key
+            .sign_prehash(hash)
             .map_err(|e| HlError::Signing(e.to_string()))?;
         let mut result = [0u8; 65];
         result[..64].copy_from_slice(&sig.to_bytes());

@@ -5,8 +5,8 @@
 //! bridges the hl-signing [`Signer`](crate::Signer) trait to motosan-wallet-core's
 //! [`HlSigner`] so the actual EIP-712 logic lives in one place.
 
-use crate::SingleAddressSigner;
 use crate::Signer;
+use crate::SingleAddressSigner;
 use hl_types::{HlError, Signature};
 
 use motosan_wallet_core::HlTypeField;
