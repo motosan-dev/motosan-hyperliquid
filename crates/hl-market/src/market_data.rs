@@ -86,11 +86,20 @@ impl MarketData {
 // ---------------------------------------------------------------------------
 
 /// Parse a JSON value that might be a string-encoded float or a number.
-fn parse_str_f64(val: Option<&serde_json::Value>) -> f64 {
+///
+/// Returns an error if the value is missing, null, or not parseable as `f64`.
+fn parse_str_f64(val: Option<&serde_json::Value>, field: &str) -> Result<f64, HlError> {
     match val {
-        Some(serde_json::Value::String(s)) => s.parse::<f64>().unwrap_or(0.0),
-        Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
-        _ => 0.0,
+        Some(serde_json::Value::String(s)) => s
+            .parse::<f64>()
+            .map_err(|_| parse_err(format!("cannot parse '{field}' value \"{s}\" as f64"))),
+        Some(serde_json::Value::Number(n)) => n
+            .as_f64()
+            .ok_or_else(|| parse_err(format!("cannot convert '{field}' number to f64"))),
+        Some(v) => Err(parse_err(format!(
+            "unexpected type for '{field}': expected string or number, got {v}"
+        ))),
+        None => Err(parse_err(format!("missing field '{field}'"))),
     }
 }
 
@@ -119,11 +128,12 @@ pub fn parse_candles(response: &serde_json::Value, limit: usize) -> Result<Vec<H
 
         candles.push(HlCandle {
             timestamp: time_ms,
-            open: parse_str_f64(item.get("o")),
-            high: parse_str_f64(item.get("h")),
-            low: parse_str_f64(item.get("l")),
-            close: parse_str_f64(item.get("c")),
-            volume: parse_str_f64(item.get("v")),
+            open: parse_str_f64(item.get("o"), "o")?,
+            high: parse_str_f64(item.get("h"), "h")?,
+            low: parse_str_f64(item.get("l"), "l")?,
+            close: parse_str_f64(item.get("c"), "c")?,
+            // Volume of 0 is valid (no trades in interval), so treat missing as 0.
+            volume: parse_str_f64(item.get("v"), "v").unwrap_or(0.0),
         });
     }
 
@@ -153,27 +163,24 @@ pub fn parse_orderbook(response: &serde_json::Value, coin: &str) -> Result<HlOrd
         return Err(parse_err("l2Book 'levels' array has fewer than 2 entries"));
     }
 
-    let parse_levels = |arr: &serde_json::Value| -> Vec<(f64, f64)> {
-        arr.as_array()
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter_map(|entry| {
-                        let px = parse_str_f64(entry.get("px"));
-                        let sz = parse_str_f64(entry.get("sz"));
-                        if px > 0.0 {
-                            Some((px, sz))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+    let parse_levels = |arr: &serde_json::Value| -> Result<Vec<(f64, f64)>, HlError> {
+        let entries = arr
+            .as_array()
+            .ok_or_else(|| parse_err("orderbook level is not an array"))?;
+        let mut result = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let px = parse_str_f64(entry.get("px"), "px")?;
+            // Size of 0 is valid (empty level), but skip zero-price entries.
+            let sz = parse_str_f64(entry.get("sz"), "sz").unwrap_or(0.0);
+            if px > 0.0 {
+                result.push((px, sz));
+            }
+        }
+        Ok(result)
     };
 
-    let bids = parse_levels(&levels[0]);
-    let asks = parse_levels(&levels[1]);
+    let bids = parse_levels(&levels[0])?;
+    let asks = parse_levels(&levels[1])?;
 
     let timestamp = response
         .get("time")
@@ -301,7 +308,7 @@ pub fn parse_funding_rates(response: &serde_json::Value) -> Result<Vec<HlFunding
             .unwrap_or("")
             .to_string();
 
-        let funding_rate = parse_str_f64(ctx.get("funding"));
+        let funding_rate = parse_str_f64(ctx.get("funding"), "funding")?;
 
         let next_funding_time = ctx
             .get("nextFundingTime")
@@ -454,6 +461,93 @@ mod tests {
         assert_eq!(infos[1].coin, "ETH");
         assert_eq!(infos[1].asset_id, 1);
         assert_eq!(infos[1].px_decimals, 4);
+    }
+
+    #[test]
+    fn test_parse_str_f64_string_value() {
+        let v = serde_json::json!("123.45");
+        assert_eq!(parse_str_f64(Some(&v), "test").unwrap(), 123.45);
+    }
+
+    #[test]
+    fn test_parse_str_f64_number_value() {
+        let v = serde_json::json!(42.0);
+        assert_eq!(parse_str_f64(Some(&v), "test").unwrap(), 42.0);
+    }
+
+    #[test]
+    fn test_parse_str_f64_invalid_string() {
+        let v = serde_json::json!("not_a_number");
+        let err = parse_str_f64(Some(&v), "price").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("price"),
+            "error should mention field name: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_parse_str_f64_null() {
+        let v = serde_json::Value::Null;
+        assert!(parse_str_f64(Some(&v), "test").is_err());
+    }
+
+    #[test]
+    fn test_parse_str_f64_missing() {
+        assert!(parse_str_f64(None, "test").is_err());
+    }
+
+    #[test]
+    fn test_parse_candles_missing_ohlc_field_errors() {
+        // Candle entry with missing 'c' (close) field should error.
+        let json = serde_json::json!([{
+            "t": 1_u64,
+            "o": "1.0",
+            "h": "2.0",
+            "l": "0.5"
+            // "c" missing, "v" missing
+        }]);
+        let err = parse_candles(&json, 10).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("'c'"), "should mention missing field: {msg}");
+    }
+
+    #[test]
+    fn test_parse_candles_unparseable_price_errors() {
+        let json = serde_json::json!([{
+            "t": 1_u64,
+            "o": "bad",
+            "h": "2.0",
+            "l": "0.5",
+            "c": "1.0",
+            "v": "10"
+        }]);
+        assert!(parse_candles(&json, 10).is_err());
+    }
+
+    #[test]
+    fn test_parse_candles_missing_volume_defaults_to_zero() {
+        let json = serde_json::json!([{
+            "t": 1_u64,
+            "o": "1.0",
+            "h": "2.0",
+            "l": "0.5",
+            "c": "1.5"
+            // "v" missing — should default to 0.0
+        }]);
+        let candles = parse_candles(&json, 10).unwrap();
+        assert_eq!(candles[0].volume, 0.0);
+    }
+
+    #[test]
+    fn test_parse_orderbook_unparseable_price_errors() {
+        let json = serde_json::json!({
+            "levels": [
+                [{"px": "not_a_number", "sz": "1.0"}],
+                [{"px": "100.0", "sz": "1.0"}]
+            ]
+        });
+        assert!(parse_orderbook(&json, "BTC").is_err());
     }
 
     #[test]
