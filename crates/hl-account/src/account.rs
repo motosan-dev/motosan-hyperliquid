@@ -71,25 +71,49 @@ impl Account {
     }
 }
 
+/// Parse a string-encoded float from a JSON value, returning an error on failure.
+fn parse_str_f64(val: &serde_json::Value, field: &str) -> Result<f64, HlError> {
+    match val {
+        serde_json::Value::String(s) => s
+            .parse::<f64>()
+            .map_err(|_| HlError::Parse(format!("cannot parse '{field}' value \"{s}\" as f64"))),
+        serde_json::Value::Number(n) => n
+            .as_f64()
+            .ok_or_else(|| HlError::Parse(format!("cannot convert '{field}' number to f64"))),
+        serde_json::Value::Null => Err(HlError::Parse(format!("field '{field}' is null"))),
+        v => Err(HlError::Parse(format!(
+            "unexpected type for '{field}': expected string or number, got {v}"
+        ))),
+    }
+}
+
 /// Parse a `clearinghouseState` JSON response into an [`HlAccountState`].
 ///
 /// Hyperliquid returns numeric fields as quoted strings, e.g. `"szi": "0.001"`.
 /// Zero-size positions (|szi| < 1e-12) are skipped.
 pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, HlError> {
-    let margin_summary = &resp["marginSummary"];
+    let margin_summary = resp
+        .get("marginSummary")
+        .ok_or_else(|| HlError::Parse("missing 'marginSummary' in clearinghouseState".into()))?;
 
-    let equity: f64 = margin_summary["accountValue"]
-        .as_str()
-        .unwrap_or("0")
-        .parse()
-        .unwrap_or(0.0);
+    let equity: f64 = parse_str_f64(
+        margin_summary
+            .get("accountValue")
+            .ok_or_else(|| HlError::Parse("missing 'accountValue' in marginSummary".into()))?,
+        "accountValue",
+    )?;
 
-    let margin_available: f64 = margin_summary["totalRawUsd"]
-        .as_str()
-        .or_else(|| margin_summary["availableMargin"].as_str())
-        .unwrap_or("0")
-        .parse()
-        .unwrap_or(0.0);
+    let margin_available: f64 = {
+        let raw = margin_summary
+            .get("totalRawUsd")
+            .or_else(|| margin_summary.get("availableMargin"))
+            .ok_or_else(|| {
+                HlError::Parse(
+                    "missing 'totalRawUsd' and 'availableMargin' in marginSummary".into(),
+                )
+            })?;
+        parse_str_f64(raw, "totalRawUsd/availableMargin")?
+    };
 
     let mut positions = Vec::new();
 
@@ -97,12 +121,18 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
         for pos in asset_positions {
             let p = &pos["position"];
 
-            let size: f64 = p["szi"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
+            // Size: parse with error propagation. A size of 0.0 is valid
+            // (means the position is closed), so we skip it rather than error.
+            let size: f64 = parse_str_f64(
+                p.get("szi")
+                    .ok_or_else(|| HlError::Parse("missing 'szi' in position".into()))?,
+                "szi",
+            )?;
             if size.abs() < 1e-12 {
                 continue;
             }
 
-            let coin = match p["coin"].as_str() {
+            let coin = match p.get("coin").and_then(|v| v.as_str()) {
                 Some(c) if !c.is_empty() => c.to_string(),
                 _ => {
                     tracing::warn!("Skipping position with missing or empty coin field");
@@ -110,20 +140,26 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
                 }
             };
 
-            let entry_px: f64 = p["entryPx"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
-            let unrealized_pnl: f64 = p["unrealizedPnl"]
-                .as_str()
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0.0);
-            let leverage: f64 = p["leverage"]["value"].as_f64().unwrap_or_else(|| {
-                p["leverage"]["value"]
-                    .as_str()
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(1.0)
-            });
-            let liquidation_px: Option<f64> =
-                p["liquidationPx"].as_str().and_then(|s| s.parse().ok());
+            let entry_px: f64 = parse_str_f64(
+                p.get("entryPx")
+                    .ok_or_else(|| HlError::Parse("missing 'entryPx' in position".into()))?,
+                "entryPx",
+            )?;
+            let unrealized_pnl: f64 = parse_str_f64(
+                p.get("unrealizedPnl")
+                    .ok_or_else(|| HlError::Parse("missing 'unrealizedPnl' in position".into()))?,
+                "unrealizedPnl",
+            )?;
+            let leverage: f64 = match p.get("leverage").and_then(|l| l.get("value")) {
+                Some(v) => parse_str_f64(v, "leverage.value")
+                    // Leverage defaults to 1.0 if unparseable (cross-margin mode).
+                    .unwrap_or(1.0),
+                None => 1.0,
+            };
+            let liquidation_px: Option<f64> = match p.get("liquidationPx") {
+                Some(serde_json::Value::Null) | None => None,
+                Some(v) => Some(parse_str_f64(v, "liquidationPx")?),
+            };
 
             positions.push(HlPosition {
                 coin,
@@ -163,16 +199,35 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
             }
         };
 
-        let px: f64 = fill["px"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
-        let sz: f64 = fill["sz"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
-        let is_buy = fill["side"].as_str().unwrap_or("") == "B";
-        let timestamp: u64 = fill["time"].as_u64().unwrap_or(0);
-        let fee: f64 = fill["fee"].as_str().unwrap_or("0").parse().unwrap_or(0.0);
-        let closed_pnl: f64 = fill["closedPnl"]
-            .as_str()
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0.0);
+        let px: f64 = parse_str_f64(
+            fill.get("px")
+                .ok_or_else(|| HlError::Parse("missing 'px' in fill".into()))?,
+            "px",
+        )?;
+        let sz: f64 = parse_str_f64(
+            fill.get("sz")
+                .ok_or_else(|| HlError::Parse("missing 'sz' in fill".into()))?,
+            "sz",
+        )?;
+        let is_buy = fill
+            .get("side")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| HlError::Parse("missing 'side' in fill".into()))?
+            == "B";
+        let timestamp: u64 = fill
+            .get("time")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| HlError::Parse("missing or invalid 'time' in fill".into()))?;
+        let fee: f64 = parse_str_f64(
+            fill.get("fee")
+                .ok_or_else(|| HlError::Parse("missing 'fee' in fill".into()))?,
+            "fee",
+        )?;
+        // closedPnl may be 0.0 legitimately (no realized PnL), default to 0.0 if missing.
+        let closed_pnl: f64 = match fill.get("closedPnl") {
+            Some(v) => parse_str_f64(v, "closedPnl")?,
+            None => 0.0,
+        };
 
         fills.push(HlFill {
             coin,
@@ -328,5 +383,94 @@ mod tests {
         let fills = parse_fills(&resp).unwrap();
         assert_eq!(fills.len(), 1);
         assert_eq!(fills[0].coin, "SOL");
+    }
+
+    #[test]
+    fn parse_account_state_missing_margin_summary_errors() {
+        let resp = serde_json::json!({"assetPositions": []});
+        let err = parse_account_state(&resp).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("marginSummary"),
+            "should mention missing field: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_account_state_unparseable_equity_errors() {
+        let resp = serde_json::json!({
+            "marginSummary": {
+                "accountValue": "not_a_number",
+                "totalRawUsd": "100.0"
+            },
+            "assetPositions": []
+        });
+        assert!(parse_account_state(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_account_state_unparseable_entry_px_errors() {
+        let resp = serde_json::json!({
+            "marginSummary": {
+                "accountValue": "1000.0",
+                "totalRawUsd": "500.0"
+            },
+            "assetPositions": [{
+                "position": {
+                    "coin": "BTC",
+                    "szi": "1.0",
+                    "entryPx": "garbage",
+                    "unrealizedPnl": "0.0",
+                    "leverage": {"type": "cross", "value": 1}
+                }
+            }]
+        });
+        assert!(parse_account_state(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_fills_unparseable_price_errors() {
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+        let resp = serde_json::json!([{
+            "coin": "BTC",
+            "px": "not_valid",
+            "sz": "1.0",
+            "side": "B",
+            "time": now_ms,
+            "fee": "0",
+            "closedPnl": "0"
+        }]);
+        assert!(parse_fills(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_fills_missing_time_errors() {
+        let resp = serde_json::json!([{
+            "coin": "BTC",
+            "px": "100.0",
+            "sz": "1.0",
+            "side": "B",
+            "fee": "0",
+            "closedPnl": "0"
+            // "time" missing
+        }]);
+        assert!(parse_fills(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_fills_missing_closed_pnl_defaults_to_zero() {
+        let now_ms = chrono::Utc::now().timestamp_millis() as u64;
+        let resp = serde_json::json!([{
+            "coin": "BTC",
+            "px": "100.0",
+            "sz": "1.0",
+            "side": "B",
+            "time": now_ms,
+            "fee": "0.5"
+            // "closedPnl" missing — should default to 0.0
+        }]);
+        let fills = parse_fills(&resp).unwrap();
+        assert_eq!(fills.len(), 1);
+        assert!((fills[0].closed_pnl - 0.0).abs() < 1e-9);
     }
 }
