@@ -9,5 +9,4 @@ description = "Hyperliquid domain types — orders, signatures, candles, account
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-chrono.workspace = true
 rust_decimal.workspace = true
