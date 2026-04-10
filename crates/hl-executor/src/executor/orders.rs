@@ -192,24 +192,6 @@ impl OrderExecutor {
         ))
     }
 
-    /// Transfer USDC into a vault.
-    #[tracing::instrument(skip(self), fields(vault, amount = %amount))]
-    pub async fn transfer_to_vault(
-        &self,
-        vault: &str,
-        amount: Decimal,
-    ) -> Result<HlActionResponse, HlError> {
-        let action = serde_json::json!({
-            "type": "vaultTransfer",
-            "vaultAddress": vault,
-            "isDeposit": true,
-            "usd": amount.to_string(),
-        });
-        let resp = self.send_signed_action(action, None).await?;
-        serde_json::from_value(resp)
-            .map_err(|e| HlError::Parse(format!("transfer_to_vault response: {e}")))
-    }
-
     /// Place multiple orders in a single signed action.
     #[tracing::instrument(skip(self, orders), fields(count = orders.len()))]
     pub async fn bulk_order(

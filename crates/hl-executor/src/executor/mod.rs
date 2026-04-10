@@ -10,11 +10,13 @@ use hl_types::*;
 
 use crate::meta_cache::AssetMetaCache;
 
+pub mod admin;
 pub mod cancel;
 pub mod leverage;
 pub mod modify;
 pub mod orders;
 pub mod response;
+pub mod transfer;
 
 /// Normalize a market symbol to its base coin name.
 ///

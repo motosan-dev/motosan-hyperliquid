@@ -180,3 +180,25 @@ async fn live_update_leverage() {
         .expect("update_leverage to 10x failed");
     assert_eq!(resp.status, "ok");
 }
+
+#[tokio::test]
+async fn live_schedule_cancel() {
+    let (client, signer, address) = setup();
+    let executor = OrderExecutor::from_client(client, signer, address)
+        .await
+        .expect("executor construction failed");
+
+    // Schedule cancel 1 hour from now
+    let future_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 3_600_000;
+
+    let resp = executor.schedule_cancel(Some(future_time), None).await;
+    assert!(resp.is_ok(), "schedule_cancel failed: {:?}", resp.err());
+
+    // Unschedule
+    let resp2 = executor.schedule_cancel(None, None).await;
+    assert!(resp2.is_ok(), "unschedule_cancel failed: {:?}", resp2.err());
+}

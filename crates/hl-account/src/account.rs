@@ -102,6 +102,90 @@ impl Account {
             })
             .collect()
     }
+
+    /// Fetch open orders for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn open_orders(&self, address: &str) -> Result<Vec<serde_json::Value>, HlError> {
+        let payload = serde_json::json!({"type": "openOrders", "user": address});
+        let resp = self.client.post_info(payload).await?;
+        resp.as_array()
+            .cloned()
+            .ok_or_else(|| HlError::Parse("expected array for openOrders".into()))
+    }
+
+    /// Fetch the status of a specific order.
+    #[tracing::instrument(skip(self))]
+    pub async fn order_status(
+        &self,
+        address: &str,
+        oid: u64,
+    ) -> Result<serde_json::Value, HlError> {
+        let payload = serde_json::json!({"type": "orderStatus", "user": address, "oid": oid});
+        self.client.post_info(payload).await
+    }
+
+    /// Fetch funding history for a coin.
+    #[tracing::instrument(skip(self))]
+    pub async fn funding_history(
+        &self,
+        coin: &str,
+        start_time: u64,
+        end_time: Option<u64>,
+    ) -> Result<Vec<serde_json::Value>, HlError> {
+        let mut payload = serde_json::json!({
+            "type": "fundingHistory",
+            "coin": coin,
+            "startTime": start_time,
+        });
+        if let Some(et) = end_time {
+            payload.as_object_mut().unwrap().insert(
+                "endTime".to_string(),
+                serde_json::Value::Number(et.into()),
+            );
+        }
+        let resp = self.client.post_info(payload).await?;
+        resp.as_array()
+            .cloned()
+            .ok_or_else(|| HlError::Parse("expected array for fundingHistory".into()))
+    }
+
+    /// Fetch user funding history for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn user_funding(
+        &self,
+        address: &str,
+        start_time: u64,
+        end_time: Option<u64>,
+    ) -> Result<Vec<serde_json::Value>, HlError> {
+        let mut payload = serde_json::json!({
+            "type": "userFunding",
+            "user": address,
+            "startTime": start_time,
+        });
+        if let Some(et) = end_time {
+            payload.as_object_mut().unwrap().insert(
+                "endTime".to_string(),
+                serde_json::Value::Number(et.into()),
+            );
+        }
+        let resp = self.client.post_info(payload).await?;
+        resp.as_array()
+            .cloned()
+            .ok_or_else(|| HlError::Parse("expected array for userFunding".into()))
+    }
+
+    /// Fetch historical orders for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn historical_orders(
+        &self,
+        address: &str,
+    ) -> Result<Vec<serde_json::Value>, HlError> {
+        let payload = serde_json::json!({"type": "historicalOrders", "user": address});
+        let resp = self.client.post_info(payload).await?;
+        resp.as_array()
+            .cloned()
+            .ok_or_else(|| HlError::Parse("expected array for historicalOrders".into()))
+    }
 }
 
 /// Parse a string-encoded decimal from a JSON value, returning an error on failure.

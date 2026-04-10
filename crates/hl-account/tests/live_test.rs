@@ -42,3 +42,21 @@ async fn live_fills() {
     assert!(fills.is_ok(), "fills query failed: {:?}", fills.err());
     // May be empty -- that's fine
 }
+
+#[tokio::test]
+async fn live_open_orders() {
+    let (acc, addr) = account();
+    let result = acc.open_orders(&addr).await;
+    assert!(result.is_ok(), "open_orders failed: {:?}", result.err());
+}
+
+#[tokio::test]
+async fn live_historical_orders() {
+    let (acc, addr) = account();
+    let result = acc.historical_orders(&addr).await;
+    assert!(
+        result.is_ok(),
+        "historical_orders failed: {:?}",
+        result.err()
+    );
+}
