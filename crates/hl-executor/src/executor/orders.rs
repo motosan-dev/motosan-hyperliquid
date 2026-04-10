@@ -289,12 +289,12 @@ impl OrderExecutor {
         };
 
         let order = if side.is_buy() {
-            OrderWire::limit_buy(asset_idx, limit_price.to_string(), size.to_string())
+            OrderWire::limit_buy(asset_idx, limit_price, size)
         } else {
-            OrderWire::limit_sell(asset_idx, limit_price.to_string(), size.to_string())
+            OrderWire::limit_sell(asset_idx, limit_price, size)
         }
         .tif(Tif::Ioc)
-        .build();
+        .build()?;
 
         self.place_order(order, vault).await
     }
@@ -361,13 +361,13 @@ impl OrderExecutor {
         };
 
         let order = if close_side.is_buy() {
-            OrderWire::limit_buy(asset_idx, limit_price.to_string(), close_size.to_string())
+            OrderWire::limit_buy(asset_idx, limit_price, close_size)
         } else {
-            OrderWire::limit_sell(asset_idx, limit_price.to_string(), close_size.to_string())
+            OrderWire::limit_sell(asset_idx, limit_price, close_size)
         }
         .tif(Tif::Ioc)
         .reduce_only(true)
-        .build();
+        .build()?;
 
         self.place_order(order, vault).await
     }
