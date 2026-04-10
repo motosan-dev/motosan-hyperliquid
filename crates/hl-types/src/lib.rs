@@ -24,8 +24,8 @@ pub use candle::HlCandle;
 pub use error::HlError;
 pub use market::{HlAssetInfo, HlFundingRate, HlOrderbook};
 pub use order::{
-    LimitOrderType, OrderStatus, OrderTypeWire, OrderWire, OrderWireBuilder, PositionSide, Side,
-    Tif, Tpsl, TriggerOrderType,
+    CancelByCloidRequest, CancelRequest, LimitOrderType, ModifyRequest, OrderStatus, OrderTypeWire,
+    OrderWire, OrderWireBuilder, PositionSide, Side, Tif, Tpsl, TriggerOrderType,
 };
 pub use response::{HlActionResponse, OrderResponse};
 pub use rust_decimal::Decimal;
