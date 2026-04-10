@@ -37,6 +37,7 @@ pub struct LocalPosition {
 
 /// Summary of a single reconciliation action that should be taken.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReconcileAction {
     /// A local open position no longer exists on the exchange and should be
     /// closed.
@@ -60,6 +61,7 @@ pub enum ReconcileAction {
 
 /// Result returned after a full reconciliation pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReconcileReport {
     pub actions: Vec<ReconcileAction>,
     pub exchange_position_count: usize,

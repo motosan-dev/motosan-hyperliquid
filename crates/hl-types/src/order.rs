@@ -31,6 +31,7 @@ impl fmt::Display for Side {
 ///
 /// Wire format uses PascalCase: `"Gtc"`, `"Ioc"`, `"Alo"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Tif {
     /// Good-til-cancelled.
     Gtc,
@@ -91,6 +92,7 @@ impl fmt::Display for PositionSide {
 /// Order status returned by the exchange.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OrderStatus {
     /// Fully filled.
     Filled,
@@ -305,6 +307,7 @@ impl OrderWire {
 /// - Limit: `{"limit": {"tif": "Gtc"}}`
 /// - Trigger: `{"trigger": {"triggerPx": "...", "isMarket": true, "tpsl": "sl"}}`
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OrderTypeWire {
     /// A limit order with time-in-force.
     Limit(LimitOrderType),

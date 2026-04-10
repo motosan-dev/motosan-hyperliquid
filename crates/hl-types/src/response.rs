@@ -28,6 +28,7 @@ pub struct OrderResponse {
 /// the inner response payload and any extra fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct HlActionResponse {
     /// Top-level status string (typically `"ok"`).
     pub status: String,

@@ -1,5 +1,6 @@
 /// Errors that can occur in Hyperliquid operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum HlError {
     #[error("Signing error: {0}")]
     Signing(String),
