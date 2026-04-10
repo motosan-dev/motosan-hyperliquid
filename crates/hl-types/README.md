@@ -40,21 +40,12 @@ This crate has **no network dependencies**. It only uses `serde` for serializati
 ## Usage
 
 ```rust
-use hl_types::{HlCandle, HlError, OrderWire, OrderTypeWire, LimitOrderType};
+use hl_types::{HlCandle, HlError, OrderWire, Tif};
 
-// Construct a limit order
-let order = OrderWire {
-    asset: 0,
-    is_buy: true,
-    limit_px: "90000.0".to_string(),
-    sz: "0.001".to_string(),
-    reduce_only: false,
-    order_type: OrderTypeWire {
-        limit: Some(LimitOrderType { tif: "Gtc".to_string() }),
-        trigger: None,
-    },
-    cloid: None,
-};
+// Construct a limit order using the builder
+let order = OrderWire::limit_buy(0, "90000.0", "0.001")
+    .tif(Tif::Gtc)
+    .build();
 
 // Check if an error is retryable
 let err = HlError::RateLimited { retry_after_ms: 1000, message: "slow down".into() };

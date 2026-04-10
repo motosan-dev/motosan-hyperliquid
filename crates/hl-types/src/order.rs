@@ -1,4 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, Visitor};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 /// Order side: buy or sell.
@@ -138,22 +140,255 @@ pub struct OrderWire {
     pub cloid: Option<String>,
 }
 
-/// Wire format for order type.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrderTypeWire {
-    /// Limit order with time-in-force, or trigger order.
-    pub limit: Option<LimitOrderType>,
-    pub trigger: Option<TriggerOrderType>,
+/// Builder for constructing [`OrderWire`] instances.
+///
+/// Use the convenience constructors [`OrderWire::limit_buy`],
+/// [`OrderWire::limit_sell`], [`OrderWire::trigger_buy`], or
+/// [`OrderWire::trigger_sell`] to start building.
+#[derive(Debug, Clone)]
+pub struct OrderWireBuilder {
+    asset: u32,
+    is_buy: bool,
+    limit_px: String,
+    sz: String,
+    reduce_only: bool,
+    order_type: OrderTypeWire,
+    cloid: Option<String>,
+}
+
+impl OrderWireBuilder {
+    /// Set the time-in-force (only meaningful for limit orders).
+    ///
+    /// For trigger orders this is a no-op.
+    pub fn tif(mut self, tif: Tif) -> Self {
+        if let OrderTypeWire::Limit(ref mut limit) = self.order_type {
+            limit.tif = tif;
+        }
+        self
+    }
+
+    /// Set the client order ID.
+    pub fn cloid(mut self, cloid: impl Into<String>) -> Self {
+        self.cloid = Some(cloid.into());
+        self
+    }
+
+    /// Mark the order as reduce-only.
+    pub fn reduce_only(mut self, reduce_only: bool) -> Self {
+        self.reduce_only = reduce_only;
+        self
+    }
+
+    /// Build the final [`OrderWire`].
+    pub fn build(self) -> OrderWire {
+        OrderWire {
+            asset: self.asset,
+            is_buy: self.is_buy,
+            limit_px: self.limit_px,
+            sz: self.sz,
+            reduce_only: self.reduce_only,
+            order_type: self.order_type,
+            cloid: self.cloid,
+        }
+    }
+}
+
+impl OrderWire {
+    /// Start building a limit buy order.
+    ///
+    /// Defaults to `Tif::Gtc`, `reduce_only = false`, no `cloid`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hl_types::{OrderWire, Tif};
+    ///
+    /// let order = OrderWire::limit_buy(0, "90000.0", "0.001")
+    ///     .tif(Tif::Gtc)
+    ///     .cloid("my-order-1")
+    ///     .build();
+    ///
+    /// assert!(order.is_buy);
+    /// assert_eq!(order.limit_px, "90000.0");
+    /// ```
+    pub fn limit_buy(
+        asset: u32,
+        limit_px: impl Into<String>,
+        sz: impl Into<String>,
+    ) -> OrderWireBuilder {
+        OrderWireBuilder {
+            asset,
+            is_buy: true,
+            limit_px: limit_px.into(),
+            sz: sz.into(),
+            reduce_only: false,
+            order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
+            cloid: None,
+        }
+    }
+
+    /// Start building a limit sell order.
+    ///
+    /// Defaults to `Tif::Gtc`, `reduce_only = false`, no `cloid`.
+    pub fn limit_sell(
+        asset: u32,
+        limit_px: impl Into<String>,
+        sz: impl Into<String>,
+    ) -> OrderWireBuilder {
+        OrderWireBuilder {
+            asset,
+            is_buy: false,
+            limit_px: limit_px.into(),
+            sz: sz.into(),
+            reduce_only: false,
+            order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
+            cloid: None,
+        }
+    }
+
+    /// Start building a trigger buy order (e.g. stop-loss or take-profit).
+    ///
+    /// Trigger orders fire as market orders when the trigger price is hit.
+    /// Defaults to `reduce_only = true`, no `cloid`.
+    pub fn trigger_buy(
+        asset: u32,
+        trigger_px: impl Into<String>,
+        sz: impl Into<String>,
+        tpsl: Tpsl,
+    ) -> OrderWireBuilder {
+        let trigger_px = trigger_px.into();
+        OrderWireBuilder {
+            asset,
+            is_buy: true,
+            limit_px: trigger_px.clone(),
+            sz: sz.into(),
+            reduce_only: true,
+            order_type: OrderTypeWire::Trigger(TriggerOrderType {
+                trigger_px,
+                is_market: true,
+                tpsl,
+            }),
+            cloid: None,
+        }
+    }
+
+    /// Start building a trigger sell order (e.g. stop-loss or take-profit).
+    ///
+    /// Trigger orders fire as market orders when the trigger price is hit.
+    /// Defaults to `reduce_only = true`, no `cloid`.
+    pub fn trigger_sell(
+        asset: u32,
+        trigger_px: impl Into<String>,
+        sz: impl Into<String>,
+        tpsl: Tpsl,
+    ) -> OrderWireBuilder {
+        let trigger_px = trigger_px.into();
+        OrderWireBuilder {
+            asset,
+            is_buy: false,
+            limit_px: trigger_px.clone(),
+            sz: sz.into(),
+            reduce_only: true,
+            order_type: OrderTypeWire::Trigger(TriggerOrderType {
+                trigger_px,
+                is_market: true,
+                tpsl,
+            }),
+            cloid: None,
+        }
+    }
+}
+
+/// Wire format for order type — either a limit order or a trigger order.
+///
+/// Serializes to the Hyperliquid wire format:
+/// - Limit: `{"limit": {"tif": "Gtc"}}`
+/// - Trigger: `{"trigger": {"triggerPx": "...", "isMarket": true, "tpsl": "sl"}}`
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrderTypeWire {
+    /// A limit order with time-in-force.
+    Limit(LimitOrderType),
+    /// A trigger (stop-loss / take-profit) order.
+    Trigger(TriggerOrderType),
+}
+
+impl OrderTypeWire {
+    /// Returns `true` if this is a limit order.
+    pub fn is_limit(&self) -> bool {
+        matches!(self, OrderTypeWire::Limit(_))
+    }
+
+    /// Returns `true` if this is a trigger order.
+    pub fn is_trigger(&self) -> bool {
+        matches!(self, OrderTypeWire::Trigger(_))
+    }
+}
+
+impl Serialize for OrderTypeWire {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(1))?;
+        match self {
+            OrderTypeWire::Limit(limit) => {
+                map.serialize_entry("limit", limit)?;
+            }
+            OrderTypeWire::Trigger(trigger) => {
+                map.serialize_entry("trigger", trigger)?;
+            }
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for OrderTypeWire {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct OrderTypeWireVisitor;
+
+        impl<'de> Visitor<'de> for OrderTypeWireVisitor {
+            type Value = OrderTypeWire;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a map with either a \"limit\" or \"trigger\" key")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let key: String = map
+                    .next_key()?
+                    .ok_or_else(|| de::Error::custom("empty order type object"))?;
+                match key.as_str() {
+                    "limit" => {
+                        let limit: LimitOrderType = map.next_value()?;
+                        Ok(OrderTypeWire::Limit(limit))
+                    }
+                    "trigger" => {
+                        let trigger: TriggerOrderType = map.next_value()?;
+                        Ok(OrderTypeWire::Trigger(trigger))
+                    }
+                    other => Err(de::Error::unknown_field(other, &["limit", "trigger"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_map(OrderTypeWireVisitor)
+    }
 }
 
 /// Limit order type wire format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LimitOrderType {
     pub tif: Tif,
 }
 
 /// Trigger order type wire format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerOrderType {
     pub trigger_px: String,
@@ -165,20 +400,164 @@ pub struct TriggerOrderType {
 mod tests {
     use super::*;
 
+    // ── OrderTypeWire enum serde ────────────────────────────────
+
     #[test]
-    fn order_wire_serde_roundtrip() {
-        let order = OrderWire {
-            asset: 1,
-            is_buy: true,
-            limit_px: "50000.0".into(),
-            sz: "0.1".into(),
-            reduce_only: false,
-            order_type: OrderTypeWire {
-                limit: Some(LimitOrderType { tif: Tif::Gtc }),
-                trigger: None,
-            },
-            cloid: None,
-        };
+    fn order_type_wire_limit_serialization() {
+        let ot = OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc });
+        let json = serde_json::to_string(&ot).unwrap();
+        assert_eq!(json, r#"{"limit":{"tif":"Gtc"}}"#);
+    }
+
+    #[test]
+    fn order_type_wire_trigger_serialization() {
+        let ot = OrderTypeWire::Trigger(TriggerOrderType {
+            trigger_px: "99.0".into(),
+            is_market: true,
+            tpsl: Tpsl::Sl,
+        });
+        let json = serde_json::to_string(&ot).unwrap();
+        assert_eq!(
+            json,
+            r#"{"trigger":{"triggerPx":"99.0","isMarket":true,"tpsl":"sl"}}"#
+        );
+    }
+
+    #[test]
+    fn order_type_wire_limit_roundtrip() {
+        let original = OrderTypeWire::Limit(LimitOrderType { tif: Tif::Ioc });
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: OrderTypeWire = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn order_type_wire_trigger_roundtrip() {
+        let original = OrderTypeWire::Trigger(TriggerOrderType {
+            trigger_px: "50.5".into(),
+            is_market: false,
+            tpsl: Tpsl::Tp,
+        });
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: OrderTypeWire = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn order_type_wire_is_limit_and_is_trigger() {
+        let limit = OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc });
+        assert!(limit.is_limit());
+        assert!(!limit.is_trigger());
+
+        let trigger = OrderTypeWire::Trigger(TriggerOrderType {
+            trigger_px: "1.0".into(),
+            is_market: true,
+            tpsl: Tpsl::Sl,
+        });
+        assert!(trigger.is_trigger());
+        assert!(!trigger.is_limit());
+    }
+
+    #[test]
+    fn order_type_wire_invalid_key_fails() {
+        let json = r#"{"unknown":{"tif":"Gtc"}}"#;
+        assert!(serde_json::from_str::<OrderTypeWire>(json).is_err());
+    }
+
+    #[test]
+    fn order_type_wire_empty_object_fails() {
+        let json = r#"{}"#;
+        assert!(serde_json::from_str::<OrderTypeWire>(json).is_err());
+    }
+
+    // ── OrderWire builder ───────────────────────────────────────
+
+    #[test]
+    fn builder_limit_buy_defaults() {
+        let order = OrderWire::limit_buy(1, "90000.0", "0.001").build();
+        assert_eq!(order.asset, 1);
+        assert!(order.is_buy);
+        assert_eq!(order.limit_px, "90000.0");
+        assert_eq!(order.sz, "0.001");
+        assert!(!order.reduce_only);
+        assert!(order.order_type.is_limit());
+        assert!(order.cloid.is_none());
+        if let OrderTypeWire::Limit(ref l) = order.order_type {
+            assert_eq!(l.tif, Tif::Gtc);
+        }
+    }
+
+    #[test]
+    fn builder_limit_sell_with_options() {
+        let order = OrderWire::limit_sell(5, "3000.0", "2.0")
+            .tif(Tif::Ioc)
+            .cloid("my-order-1")
+            .reduce_only(true)
+            .build();
+        assert_eq!(order.asset, 5);
+        assert!(!order.is_buy);
+        assert_eq!(order.limit_px, "3000.0");
+        assert_eq!(order.sz, "2.0");
+        assert!(order.reduce_only);
+        assert_eq!(order.cloid.as_deref(), Some("my-order-1"));
+        if let OrderTypeWire::Limit(ref l) = order.order_type {
+            assert_eq!(l.tif, Tif::Ioc);
+        } else {
+            panic!("expected limit order type");
+        }
+    }
+
+    #[test]
+    fn builder_trigger_buy() {
+        let order = OrderWire::trigger_buy(0, "99.0", "10.0", Tpsl::Sl)
+            .cloid("trigger-1")
+            .build();
+        assert_eq!(order.asset, 0);
+        assert!(order.is_buy);
+        assert!(order.reduce_only);
+        assert!(order.order_type.is_trigger());
+        if let OrderTypeWire::Trigger(ref t) = order.order_type {
+            assert_eq!(t.trigger_px, "99.0");
+            assert!(t.is_market);
+            assert_eq!(t.tpsl, Tpsl::Sl);
+        } else {
+            panic!("expected trigger order type");
+        }
+    }
+
+    #[test]
+    fn builder_trigger_sell() {
+        let order = OrderWire::trigger_sell(2, "150.0", "5.0", Tpsl::Tp)
+            .reduce_only(false)
+            .build();
+        assert_eq!(order.asset, 2);
+        assert!(!order.is_buy);
+        assert!(!order.reduce_only); // overridden from default true
+        assert!(order.order_type.is_trigger());
+        if let OrderTypeWire::Trigger(ref t) = order.order_type {
+            assert_eq!(t.trigger_px, "150.0");
+            assert_eq!(t.tpsl, Tpsl::Tp);
+        } else {
+            panic!("expected trigger order type");
+        }
+    }
+
+    #[test]
+    fn builder_tif_noop_on_trigger() {
+        // Calling .tif() on a trigger builder should not panic or change anything
+        let order = OrderWire::trigger_buy(0, "99.0", "1.0", Tpsl::Sl)
+            .tif(Tif::Ioc)
+            .build();
+        assert!(order.order_type.is_trigger());
+    }
+
+    // ── OrderWire serde (full struct) ───────────────────────────
+
+    #[test]
+    fn order_wire_limit_serde_roundtrip() {
+        let order = OrderWire::limit_buy(1, "50000.0", "0.1")
+            .cloid("test-cloid")
+            .build();
         let json = serde_json::to_string(&order).unwrap();
         let parsed: OrderWire = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.asset, 1);
@@ -186,72 +565,27 @@ mod tests {
         assert_eq!(parsed.limit_px, "50000.0");
         assert_eq!(parsed.sz, "0.1");
         assert!(!parsed.reduce_only);
-        assert!(parsed.cloid.is_none());
-        assert_eq!(parsed.order_type.limit.as_ref().unwrap().tif, Tif::Gtc);
-        assert!(parsed.order_type.trigger.is_none());
+        assert_eq!(parsed.cloid.as_deref(), Some("test-cloid"));
+        assert!(parsed.order_type.is_limit());
     }
 
     #[test]
-    fn order_wire_with_cloid_roundtrip() {
-        let order = OrderWire {
-            asset: 5,
-            is_buy: false,
-            limit_px: "3000.5".into(),
-            sz: "2.0".into(),
-            reduce_only: true,
-            order_type: OrderTypeWire {
-                limit: None,
-                trigger: None,
-            },
-            cloid: Some("my-order-123".into()),
-        };
+    fn order_wire_trigger_serde_roundtrip() {
+        let order = OrderWire::trigger_buy(0, "100.0", "10.0", Tpsl::Tp).build();
         let json = serde_json::to_string(&order).unwrap();
         let parsed: OrderWire = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.cloid.as_deref(), Some("my-order-123"));
-        assert!(parsed.reduce_only);
-        assert!(!parsed.is_buy);
-    }
-
-    #[test]
-    fn order_wire_with_trigger_roundtrip() {
-        let order = OrderWire {
-            asset: 0,
-            is_buy: true,
-            limit_px: "100.0".into(),
-            sz: "10.0".into(),
-            reduce_only: false,
-            order_type: OrderTypeWire {
-                limit: None,
-                trigger: Some(TriggerOrderType {
-                    trigger_px: "99.0".into(),
-                    is_market: true,
-                    tpsl: Tpsl::Tp,
-                }),
-            },
-            cloid: None,
+        let trigger = match parsed.order_type {
+            OrderTypeWire::Trigger(t) => t,
+            _ => panic!("expected trigger"),
         };
-        let json = serde_json::to_string(&order).unwrap();
-        let parsed: OrderWire = serde_json::from_str(&json).unwrap();
-        let trigger = parsed.order_type.trigger.unwrap();
-        assert_eq!(trigger.trigger_px, "99.0");
+        assert_eq!(trigger.trigger_px, "100.0");
         assert!(trigger.is_market);
         assert_eq!(trigger.tpsl, Tpsl::Tp);
     }
 
     #[test]
     fn order_wire_camel_case_serialization() {
-        let order = OrderWire {
-            asset: 0,
-            is_buy: true,
-            limit_px: "1.0".into(),
-            sz: "1.0".into(),
-            reduce_only: false,
-            order_type: OrderTypeWire {
-                limit: None,
-                trigger: None,
-            },
-            cloid: None,
-        };
+        let order = OrderWire::limit_buy(0, "1.0", "1.0").build();
         let json = serde_json::to_string(&order).unwrap();
         assert!(json.contains("isBuy"));
         assert!(json.contains("limitPx"));
@@ -262,8 +596,70 @@ mod tests {
     }
 
     #[test]
+    fn order_wire_with_cloid_roundtrip() {
+        let order = OrderWire::limit_sell(5, "3000.5", "2.0")
+            .reduce_only(true)
+            .cloid("my-order-123")
+            .build();
+        let json = serde_json::to_string(&order).unwrap();
+        let parsed: OrderWire = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.cloid.as_deref(), Some("my-order-123"));
+        assert!(parsed.reduce_only);
+        assert!(!parsed.is_buy);
+    }
+
+    // ── Wire format backward compatibility ──────────────────────
+
+    #[test]
+    fn wire_format_limit_matches_hyperliquid() {
+        // Hyperliquid expects: {"limit": {"tif": "Gtc"}}
+        let ot = OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc });
+        let json = serde_json::to_value(&ot).unwrap();
+        assert!(json.get("limit").is_some());
+        assert_eq!(json["limit"]["tif"], "Gtc");
+    }
+
+    #[test]
+    fn wire_format_trigger_matches_hyperliquid() {
+        // Hyperliquid expects: {"trigger": {"triggerPx": "...", "isMarket": ..., "tpsl": "..."}}
+        let ot = OrderTypeWire::Trigger(TriggerOrderType {
+            trigger_px: "99.0".into(),
+            is_market: true,
+            tpsl: Tpsl::Sl,
+        });
+        let json = serde_json::to_value(&ot).unwrap();
+        assert!(json.get("trigger").is_some());
+        assert_eq!(json["trigger"]["triggerPx"], "99.0");
+        assert_eq!(json["trigger"]["isMarket"], true);
+        assert_eq!(json["trigger"]["tpsl"], "sl");
+    }
+
+    #[test]
+    fn deserialize_from_hyperliquid_limit_json() {
+        // Simulate what Hyperliquid would send back
+        let json = r#"{"limit":{"tif":"Gtc"}}"#;
+        let ot: OrderTypeWire = serde_json::from_str(json).unwrap();
+        assert_eq!(ot, OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }));
+    }
+
+    #[test]
+    fn deserialize_from_hyperliquid_trigger_json() {
+        let json = r#"{"trigger":{"triggerPx":"99.0","isMarket":true,"tpsl":"sl"}}"#;
+        let ot: OrderTypeWire = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            ot,
+            OrderTypeWire::Trigger(TriggerOrderType {
+                trigger_px: "99.0".into(),
+                is_market: true,
+                tpsl: Tpsl::Sl,
+            })
+        );
+    }
+
+    // ── Existing enum serde tests (preserved) ───────────────────
+
+    #[test]
     fn tif_serde_wire_format() {
-        // Tif serializes as PascalCase to match Hyperliquid wire format
         assert_eq!(serde_json::to_string(&Tif::Gtc).unwrap(), "\"Gtc\"");
         assert_eq!(serde_json::to_string(&Tif::Ioc).unwrap(), "\"Ioc\"");
         assert_eq!(serde_json::to_string(&Tif::Alo).unwrap(), "\"Alo\"");

@@ -26,21 +26,13 @@ let executor = OrderExecutor::new(client, Box::new(signer), address).await?;
 ### Place a Limit Order
 
 ```rust
-use hl_types::{OrderWire, OrderTypeWire, LimitOrderType};
+use hl_types::{OrderWire, Tif};
 use hl_client::HyperliquidClient;
 
-let order = OrderWire {
-    asset: 0, // BTC -- use meta_cache.asset_index("BTC") to look up dynamically
-    is_buy: true,
-    limit_px: "90000.0".to_string(),
-    sz: "0.001".to_string(),
-    reduce_only: false,
-    order_type: OrderTypeWire {
-        limit: Some(LimitOrderType { tif: "Gtc".to_string() }),
-        trigger: None,
-    },
-    cloid: Some(HyperliquidClient::generate_cloid()),
-};
+let order = OrderWire::limit_buy(0, "90000.0", "0.001") // BTC -- use meta_cache.asset_index("BTC")
+    .tif(Tif::Gtc)
+    .cloid(HyperliquidClient::generate_cloid())
+    .build();
 
 let resp = executor.place_order(order, None).await?;
 println!("Order {}: status={}, filled={}/{}",
