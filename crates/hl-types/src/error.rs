@@ -24,6 +24,10 @@ pub enum HlError {
     },
     #[error("Parse error: {0}")]
     Parse(String),
+    #[error("WebSocket reconnect cancelled")]
+    WsCancelled,
+    #[error("WebSocket reconnect failed after {attempts} attempts")]
+    WsReconnectExhausted { attempts: u32 },
 }
 
 impl HlError {

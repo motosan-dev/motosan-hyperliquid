@@ -16,4 +16,4 @@ pub use client::HyperliquidClient;
 pub use retry::{RetryConfig, TimeoutConfig};
 
 #[cfg(feature = "ws")]
-pub use ws::HyperliquidWs;
+pub use ws::{HyperliquidWs, WsConfig};
