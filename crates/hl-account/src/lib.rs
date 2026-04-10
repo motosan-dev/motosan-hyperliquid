@@ -7,4 +7,6 @@
 pub mod account;
 
 pub use account::Account;
-pub use account::{parse_account_state, parse_fills, parse_spot_state};
+pub use account::{
+    parse_account_state, parse_fills, parse_rate_limit_status, parse_spot_state, parse_user_fees,
+};
