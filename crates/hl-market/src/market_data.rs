@@ -29,7 +29,7 @@ impl MarketData {
 
     /// Fetch OHLCV candle snapshots for a given coin, interval, and limit.
     ///
-    /// `interval` must be one of: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`.
+    /// `interval` must be one of: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`.
     /// `limit` caps the number of candles returned (most recent).
     #[tracing::instrument(skip(self))]
     pub async fn candles(
@@ -339,13 +339,21 @@ pub fn parse_funding_rates(response: &serde_json::Value) -> Result<Vec<HlFunding
 fn interval_to_ms(interval: &str) -> Result<u64, HlError> {
     match interval {
         "1m" => Ok(60 * 1_000),
+        "3m" => Ok(3 * 60 * 1_000),
         "5m" => Ok(5 * 60 * 1_000),
         "15m" => Ok(15 * 60 * 1_000),
+        "30m" => Ok(30 * 60 * 1_000),
         "1h" => Ok(60 * 60 * 1_000),
+        "2h" => Ok(2 * 60 * 60 * 1_000),
         "4h" => Ok(4 * 60 * 60 * 1_000),
+        "8h" => Ok(8 * 60 * 60 * 1_000),
+        "12h" => Ok(12 * 60 * 60 * 1_000),
         "1d" => Ok(24 * 60 * 60 * 1_000),
+        "3d" => Ok(3 * 24 * 60 * 60 * 1_000),
+        "1w" => Ok(7 * 24 * 60 * 60 * 1_000),
+        "1M" => Ok(30 * 24 * 60 * 60 * 1_000),
         _ => Err(parse_err(format!(
-            "unsupported interval '{}'; valid values: 1m, 5m, 15m, 1h, 4h, 1d",
+            "unsupported interval '{}'; valid values: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M",
             interval
         ))),
     }
@@ -591,6 +599,35 @@ mod tests {
             rates[1].funding_rate,
             Decimal::from_str("-0.00005").unwrap()
         );
+    }
+
+    #[test]
+    fn test_interval_to_ms_existing() {
+        assert_eq!(interval_to_ms("1m").unwrap(), 60 * 1_000);
+        assert_eq!(interval_to_ms("5m").unwrap(), 5 * 60 * 1_000);
+        assert_eq!(interval_to_ms("15m").unwrap(), 15 * 60 * 1_000);
+        assert_eq!(interval_to_ms("1h").unwrap(), 60 * 60 * 1_000);
+        assert_eq!(interval_to_ms("4h").unwrap(), 4 * 60 * 60 * 1_000);
+        assert_eq!(interval_to_ms("1d").unwrap(), 24 * 60 * 60 * 1_000);
+    }
+
+    #[test]
+    fn test_interval_to_ms_extended() {
+        assert_eq!(interval_to_ms("3m").unwrap(), 3 * 60 * 1_000);
+        assert_eq!(interval_to_ms("30m").unwrap(), 30 * 60 * 1_000);
+        assert_eq!(interval_to_ms("2h").unwrap(), 2 * 60 * 60 * 1_000);
+        assert_eq!(interval_to_ms("8h").unwrap(), 8 * 60 * 60 * 1_000);
+        assert_eq!(interval_to_ms("12h").unwrap(), 12 * 60 * 60 * 1_000);
+        assert_eq!(interval_to_ms("3d").unwrap(), 3 * 24 * 60 * 60 * 1_000);
+        assert_eq!(interval_to_ms("1w").unwrap(), 7 * 24 * 60 * 60 * 1_000);
+        assert_eq!(interval_to_ms("1M").unwrap(), 30 * 24 * 60 * 60 * 1_000);
+    }
+
+    #[test]
+    fn test_interval_to_ms_invalid() {
+        let err = interval_to_ms("2m").unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("unsupported interval"), "should error: {msg}");
     }
 
     // -----------------------------------------------------------------------
