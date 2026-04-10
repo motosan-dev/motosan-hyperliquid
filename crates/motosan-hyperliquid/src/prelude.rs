@@ -7,10 +7,9 @@
 // -- Types (always available) ------------------------------------------------
 
 pub use hl_types::{
-    Decimal, HlAccountState, HlActionResponse, HlAssetInfo, HlCandle, HlError, HlFill,
-    HlFundingRate, HlOrderbook, HlPosition, OrderWire, OrderWireBuilder, Side, Signature,
-    CancelByCloidRequest, CancelRequest, ModifyRequest,
-    OrderStatus, PositionSide, Tif, Tpsl, normalize_coin,
+    normalize_coin, CancelByCloidRequest, CancelRequest, Decimal, HlAccountState, HlActionResponse,
+    HlAssetInfo, HlCandle, HlError, HlFill, HlFundingRate, HlOrderbook, HlPosition, ModifyRequest,
+    OrderStatus, OrderWire, OrderWireBuilder, PositionSide, Side, Signature, Tif, Tpsl,
 };
 
 // -- Client (always available) -----------------------------------------------

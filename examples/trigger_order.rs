@@ -2,12 +2,12 @@
 //!
 //! Run: `HYPERLIQUID_TESTNET_KEY=0x... cargo run --example trigger_order`
 
-use std::str::FromStr;
 use hl_client::HyperliquidClient;
 use hl_executor::OrderExecutor;
 use hl_signing::PrivateKeySigner;
 use hl_types::{Side, Tpsl};
 use rust_decimal::Decimal;
+use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -21,7 +21,6 @@ pub use transport::HttpTransport;
 
 #[cfg(feature = "ws")]
 pub use ws::{
-    HyperliquidWs, Subscription, WsConfig, WsMessage,
-    AllMidsData, BboData, CandleData, L2BookData, OrderUpdateData,
-    TradesData, UserEventsData, UserFillsData, UserFundingsData,
+    AllMidsData, BboData, CandleData, HyperliquidWs, L2BookData, OrderUpdateData, Subscription,
+    TradesData, UserEventsData, UserFillsData, UserFundingsData, WsConfig, WsMessage,
 };

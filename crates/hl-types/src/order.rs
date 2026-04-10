@@ -21,7 +21,11 @@ impl Side {
 
     /// Create a [`Side`] from a boolean `is_buy` flag.
     pub fn from_is_buy(is_buy: bool) -> Self {
-        if is_buy { Side::Buy } else { Side::Sell }
+        if is_buy {
+            Side::Buy
+        } else {
+            Side::Sell
+        }
     }
 }
 
@@ -546,13 +550,10 @@ mod tests {
 
     #[test]
     fn builder_limit_buy_defaults() {
-        let order = OrderWire::limit_buy(
-            1,
-            Decimal::from(90000),
-            Decimal::from_str("0.001").unwrap(),
-        )
-        .build()
-        .unwrap();
+        let order =
+            OrderWire::limit_buy(1, Decimal::from(90000), Decimal::from_str("0.001").unwrap())
+                .build()
+                .unwrap();
         assert_eq!(order.asset, 1);
         assert!(order.is_buy);
         assert_eq!(order.limit_px, "90000");
@@ -659,12 +660,9 @@ mod tests {
 
     #[test]
     fn build_success() {
-        let result = OrderWire::limit_buy(
-            0,
-            Decimal::from(90000),
-            Decimal::from_str("0.001").unwrap(),
-        )
-        .build();
+        let result =
+            OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from_str("0.001").unwrap())
+                .build();
         assert!(result.is_ok());
     }
 
@@ -678,14 +676,11 @@ mod tests {
 
     #[test]
     fn order_wire_limit_serde_roundtrip() {
-        let order = OrderWire::limit_buy(
-            1,
-            Decimal::from(50000),
-            Decimal::from_str("0.1").unwrap(),
-        )
-        .cloid("test-cloid")
-        .build()
-        .unwrap();
+        let order =
+            OrderWire::limit_buy(1, Decimal::from(50000), Decimal::from_str("0.1").unwrap())
+                .cloid("test-cloid")
+                .build()
+                .unwrap();
         let json = serde_json::to_string(&order).unwrap();
         let parsed: OrderWire = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.asset, 1);

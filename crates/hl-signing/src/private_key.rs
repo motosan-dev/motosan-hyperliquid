@@ -17,16 +17,15 @@ impl PrivateKeySigner {
     /// Create a signer from a hex-encoded private key (with or without `0x` prefix).
     pub fn from_hex(key_hex: &str) -> Result<Self, HlError> {
         let stripped = key_hex.strip_prefix("0x").unwrap_or(key_hex);
-        let bytes =
-            hex::decode(stripped).map_err(|e| HlError::Signing {
-                message: format!("invalid hex: {e}"),
-                source: Some(Box::new(e)),
-            })?;
+        let bytes = hex::decode(stripped).map_err(|e| HlError::Signing {
+            message: format!("invalid hex: {e}"),
+            source: Some(Box::new(e)),
+        })?;
         if bytes.len() != 32 {
             return Err(HlError::signing("private key must be 32 bytes"));
         }
-        let key = SigningKey::from_bytes(bytes.as_slice().into())
-            .map_err(|e| HlError::Signing {
+        let key =
+            SigningKey::from_bytes(bytes.as_slice().into()).map_err(|e| HlError::Signing {
                 message: format!("invalid key: {e}"),
                 source: Some(Box::new(e)),
             })?;

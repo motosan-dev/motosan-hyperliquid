@@ -273,7 +273,8 @@ mod tests {
 
     #[test]
     fn http_error_with_source_preserves_chain() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        let io_err =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
         let err = HlError::Http {
             message: "request failed".into(),
             source: Some(Box::new(io_err)),
@@ -305,10 +306,7 @@ mod tests {
     #[test]
     fn config_error_not_retryable() {
         let err = HlError::Config("invalid timeout".into());
-        assert!(
-            !err.is_retryable(),
-            "Config errors should not be retryable"
-        );
+        assert!(!err.is_retryable(), "Config errors should not be retryable");
     }
 
     #[test]

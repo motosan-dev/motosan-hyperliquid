@@ -157,9 +157,9 @@ impl HyperliquidClient {
         });
 
         if let Some(vault) = vault_address {
-            let obj = payload.as_object_mut().ok_or_else(|| {
-                HlError::serialization("payload is not a JSON object")
-            })?;
+            let obj = payload
+                .as_object_mut()
+                .ok_or_else(|| HlError::serialization("payload is not a JSON object"))?;
             obj.insert(
                 "vaultAddress".to_string(),
                 serde_json::Value::String(vault.to_string()),
@@ -206,9 +206,11 @@ impl HyperliquidClient {
 
         // Acquire concurrency permit (held for the duration of the request).
         let _permit = match &self.rate_limiter.semaphore {
-            Some(sem) => Some(sem.acquire().await.map_err(|_| {
-                HlError::http("rate limiter semaphore closed")
-            })?),
+            Some(sem) => Some(
+                sem.acquire()
+                    .await
+                    .map_err(|_| HlError::http("rate limiter semaphore closed"))?,
+            ),
             None => None,
         };
 
@@ -256,8 +258,7 @@ impl HyperliquidClient {
         }
 
         // Should not reach here, but return last error if it does.
-        Err(last_error
-            .unwrap_or_else(|| HlError::http("Retry loop exhausted without error")))
+        Err(last_error.unwrap_or_else(|| HlError::http("Retry loop exhausted without error")))
     }
 
     /// Internal: perform a single POST request without retry.
@@ -309,10 +310,8 @@ impl HyperliquidClient {
             });
         }
 
-        let body: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| HlError::Serialization {
+        let body: serde_json::Value =
+            response.json().await.map_err(|e| HlError::Serialization {
                 message: format!("Failed to parse response: {}", e),
                 source: Some(Box::new(e)),
             })?;

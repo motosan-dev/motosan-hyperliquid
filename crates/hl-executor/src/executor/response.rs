@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use rust_decimal::Decimal;
 use hl_types::HlError;
+use rust_decimal::Decimal;
 
 /// Parsed result from a single status entry.
 #[derive(Debug)]
@@ -284,8 +284,14 @@ mod tests {
             }
         });
         let fallbacks = vec![
-            (Decimal::from_str("3000.0").unwrap(), Decimal::from_str("1.0").unwrap()),
-            (Decimal::from_str("2900.0").unwrap(), Decimal::from_str("2.0").unwrap()),
+            (
+                Decimal::from_str("3000.0").unwrap(),
+                Decimal::from_str("1.0").unwrap(),
+            ),
+            (
+                Decimal::from_str("2900.0").unwrap(),
+                Decimal::from_str("2.0").unwrap(),
+            ),
         ];
         let parsed = parse_bulk_order_response_with_fallbacks(&result, &fallbacks).unwrap();
         assert_eq!(parsed.len(), 2);

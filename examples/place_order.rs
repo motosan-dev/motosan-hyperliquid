@@ -17,19 +17,18 @@
 //! cargo run --example place_order
 //! ```
 
-use std::str::FromStr;
 use hl_client::HyperliquidClient;
 use hl_executor::OrderExecutor;
 use hl_signing::PrivateKeySigner;
 use hl_types::{OrderStatus, OrderWire, Tif};
 use rust_decimal::Decimal;
+use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Configuration ────────────────────────────────────────
-    let private_key = std::env::var("HL_PRIVATE_KEY").expect(
-        "Set HL_PRIVATE_KEY env var to your private key (use testnet for testing!)",
-    );
+    let private_key = std::env::var("HL_PRIVATE_KEY")
+        .expect("Set HL_PRIVATE_KEY env var to your private key (use testnet for testing!)");
     let is_mainnet = std::env::var("HL_NETWORK")
         .map(|n| n == "mainnet")
         .unwrap_or(false);

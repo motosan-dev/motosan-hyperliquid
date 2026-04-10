@@ -17,10 +17,8 @@ impl OrderExecutor {
         new_order: OrderWire,
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
-        let fallback_price =
-            Decimal::from_str(&new_order.limit_px).unwrap_or(Decimal::ZERO);
-        let fallback_size =
-            Decimal::from_str(&new_order.sz).unwrap_or(Decimal::ZERO);
+        let fallback_price = Decimal::from_str(&new_order.limit_px).unwrap_or(Decimal::ZERO);
+        let fallback_size = Decimal::from_str(&new_order.sz).unwrap_or(Decimal::ZERO);
 
         let order_json = order_to_json(&new_order)?;
         let action = serde_json::json!({
