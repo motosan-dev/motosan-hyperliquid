@@ -65,7 +65,7 @@ pub enum Subscription {
 /// Data received from the `allMids` WebSocket channel.
 ///
 /// Contains mid prices for all assets, updated on every trade or book change.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AllMidsData {
     /// Mid prices keyed by coin symbol (e.g. `"BTC"` -> `"90000"`).
     /// Each value is the average of the best bid and best ask.
@@ -76,13 +76,12 @@ pub struct AllMidsData {
 ///
 /// Provides an L2 orderbook snapshot for a single coin, containing bid and ask
 /// price levels with their sizes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct L2BookData {
     /// The coin symbol this orderbook belongs to (e.g. `"BTC"`).
     pub coin: String,
     /// Bid and ask levels as a two-element array: `[bids, asks]`.
-    /// Each side is an array of `{"px": "<price>", "sz": "<size>"}` objects
-    /// sorted by price (bids descending, asks ascending).
+    /// Each side is an array of `{"px": "<price>", "sz": "<size>"}` objects.
     pub levels: serde_json::Value,
     /// Server-side timestamp in milliseconds since the Unix epoch.
     pub time: u64,
@@ -90,54 +89,45 @@ pub struct L2BookData {
 
 /// Data received from the `trades` WebSocket channel.
 ///
-/// Contains recent trades for a single coin. Each trade includes price, size,
-/// side, timestamp, and other execution details.
-#[derive(Debug, Clone)]
+/// Contains recent trades for a single coin, pushed in real time.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TradesData {
     /// The coin symbol these trades belong to (e.g. `"ETH"`).
     pub coin: String,
-    /// Individual trade objects, each containing fields such as `coin`, `side`,
-    /// `px` (price), `sz` (size), `time`, and `hash`.
+    /// Individual trade objects containing `coin`, `side`, `px`, `sz`, `time`.
     pub trades: Vec<serde_json::Value>,
 }
 
 /// Data received from the `candle` WebSocket channel.
 ///
-/// Contains an OHLCV (open/high/low/close/volume) candle update for a coin
-/// at the subscribed interval.
-#[derive(Debug, Clone)]
+/// Contains an OHLCV candle update for a coin at the subscribed interval.
+#[derive(Debug, Clone, PartialEq)]
 pub struct CandleData {
     /// The coin symbol this candle belongs to (e.g. `"BTC"`).
     pub coin: String,
-    /// The candle object containing fields such as `t` (timestamp), `o` (open),
-    /// `h` (high), `l` (low), `c` (close), `v` (volume), and `s` (symbol).
+    /// The candle object containing `t`, `o`, `h`, `l`, `c`, `v` fields.
     pub candle: serde_json::Value,
 }
 
 /// Data received from the `bbo` (best bid/offer) WebSocket channel.
 ///
-/// Contains the current best bid and best ask for a single coin, updated
-/// whenever the top-of-book changes.
-#[derive(Debug, Clone)]
+/// Contains the current best bid and ask for a single coin.
+#[derive(Debug, Clone, PartialEq)]
 pub struct BboData {
     /// The coin symbol (e.g. `"SOL"`).
     pub coin: String,
-    /// The BBO payload containing fields such as `bid`, `ask`, `bidSz`,
-    /// `askSz`, and `time`.
+    /// The BBO payload containing `bid`, `ask`, `bidSz`, `askSz`, and `time`.
     pub data: serde_json::Value,
 }
 
 /// Data for a single order status change from the `orderUpdates` channel.
 ///
-/// Pushed whenever an order is opened, partially filled, fully filled,
-/// cancelled, or otherwise changes state.
-#[derive(Debug, Clone)]
+/// Pushed whenever an order is opened, filled, cancelled, or otherwise changes.
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderUpdateData {
-    /// The full order object including fields such as `oid`, `coin`, `side`,
-    /// `limitPx`, `sz`, `origSz`, and `cloid`.
+    /// The full order object including `oid`, `coin`, `side`, `limitPx`, `sz`.
     pub order: serde_json::Value,
-    /// The new order status (e.g. `"open"`, `"filled"`, `"canceled"`,
-    /// `"triggered"`, `"rejected"`, `"marginCanceled"`).
+    /// The new order status (e.g. `"open"`, `"filled"`, `"canceled"`).
     pub status: String,
     /// Timestamp in milliseconds when this status change occurred.
     pub timestamp: u64,
@@ -145,123 +135,98 @@ pub struct OrderUpdateData {
 
 /// Data received from the `user` (user events) WebSocket channel.
 ///
-/// Aggregates multiple event types for a user into a single stream, including
-/// fills, funding payments, liquidations, and non-funding ledger updates.
-#[derive(Debug, Clone)]
+/// Aggregates fills, funding payments, liquidations, and ledger updates.
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserEventsData {
-    /// List of user event objects. Each event has a type discriminator and
-    /// type-specific fields (e.g. fill details, funding amounts).
+    /// List of user event objects with type-specific fields.
     pub events: Vec<serde_json::Value>,
 }
 
 /// Data received from the `userFills` WebSocket channel.
 ///
-/// Contains trade fill events for a specific user, pushed in real time as
-/// the user's orders are matched.
-#[derive(Debug, Clone)]
+/// Contains trade fill events for a specific user, pushed in real time.
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserFillsData {
-    /// The user's address (e.g. `"0xABC..."`).
+    /// The user's address.
     pub user: String,
-    /// Individual fill objects, each containing fields such as `coin`, `px`
-    /// (price), `sz` (size), `side`, `time`, `fee`, and `oid`.
+    /// Individual fill objects containing `coin`, `px`, `sz`, `side`, `time`, `fee`.
     pub fills: Vec<serde_json::Value>,
 }
 
 /// Data received from the `userFundings` WebSocket channel.
 ///
-/// Contains funding payment events for a specific user, pushed each time a
-/// funding interval settles on a perpetual position held by the user.
-#[derive(Debug, Clone)]
+/// Contains funding payment events for a specific user.
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserFundingsData {
     /// The user's address.
     pub user: String,
-    /// Funding payment details including fields such as `coin`, `usdc`
-    /// (payment amount), `szi` (position size), `fundingRate`, and `time`.
+    /// Funding payment details including `coin`, `usdc`, `szi`, `fundingRate`.
     pub funding: serde_json::Value,
 }
 
 /// Data received from the `webData3` WebSocket channel.
 ///
-/// Provides aggregate user information in a single payload, including open
-/// positions, account balances, open orders, and other portfolio state. This
-/// is the same data shown on the Hyperliquid web interface.
-#[derive(Debug, Clone)]
+/// Contains aggregate user information including positions, balances, and orders.
+#[derive(Debug, Clone, PartialEq)]
 pub struct WebData3Data {
     /// The user's address.
     pub user: String,
-    /// Aggregate user data containing sub-objects such as `clearinghouseState`,
-    /// `openOrders`, `fills`, and `assetCtxs`.
+    /// Aggregate user data payload.
     pub data: serde_json::Value,
 }
 
 /// Data received from the `clearinghouseState` WebSocket channel.
 ///
-/// Contains margin and position state updates for a user, pushed whenever
-/// the user's positions, margin, or account value changes.
-#[derive(Debug, Clone)]
+/// Contains margin and position state updates for a user.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClearinghouseStateData {
     /// The user's address.
     pub user: String,
-    /// Clearinghouse state payload including `marginSummary` (account value,
-    /// total margin used, withdrawable), and `assetPositions` (per-asset
-    /// position details such as size, entry price, unrealized PnL).
+    /// Clearinghouse state including margin summary and positions.
     pub data: serde_json::Value,
 }
 
 /// Data received from the `activeAssetCtx` WebSocket channel.
 ///
-/// Contains asset context information for a coin, including funding rate,
-/// open interest, and mark/oracle prices. Updated on every relevant change.
-#[derive(Debug, Clone)]
+/// Contains asset context information such as funding rate and open interest.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActiveAssetCtxData {
     /// The coin symbol (e.g. `"BTC"`).
     pub coin: String,
-    /// Asset context object containing fields such as `funding` (current
-    /// funding rate), `openInterest`, `prevDayPx`, `dayNtlVlm` (24h notional
-    /// volume), `markPx`, and `oraclePx`.
+    /// Asset context payload including funding, OI, and mark price.
     pub ctx: serde_json::Value,
 }
 
 /// Data received from the `activeAssetData` WebSocket channel.
 ///
-/// Contains user-specific asset data for a coin, including leverage settings
-/// and position sizing limits. Requires both a `user` and `coin` in the
-/// subscription.
-#[derive(Debug, Clone)]
+/// Contains leverage and trade sizing limits for a user's asset.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActiveAssetDataMsg {
-    /// The coin symbol (e.g. `"ETH"`).
+    /// The coin symbol.
     pub coin: String,
-    /// User-asset data including fields such as `leverage` (current leverage
-    /// type and value), `maxTradeSzs` (maximum buy/sell sizes), and
-    /// `marginUsed`.
+    /// Asset data payload with leverage and sizing details.
     pub data: serde_json::Value,
 }
 
 /// Data received from the `userTwapHistory` WebSocket channel.
 ///
-/// Contains the execution history of a user's TWAP (Time-Weighted Average
-/// Price) orders, pushed whenever TWAP order state changes.
-#[derive(Debug, Clone)]
+/// Contains TWAP order execution history for a user.
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserTwapHistoryData {
     /// The user's address.
     pub user: String,
-    /// List of TWAP order history entries, each containing fields such as
-    /// `coin`, `sz` (total size), `executedSz`, `nSlices`, `startTime`,
-    /// `endTime`, and current `status`.
+    /// List of TWAP execution history entries.
     pub history: Vec<serde_json::Value>,
 }
 
 /// Data received from the `userTwapSliceFills` WebSocket channel.
 ///
-/// Contains individual TWAP slice fill events for a user, pushed each time
-/// a TWAP order slice is executed on the market.
-#[derive(Debug, Clone)]
+/// Contains individual TWAP slice fill events for a user.
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserTwapSliceFillsData {
     /// The user's address.
     pub user: String,
-    /// Individual slice fill objects, each containing fields such as `coin`,
-    /// `px` (execution price), `sz` (slice size), `time`, and the parent
-    /// TWAP order identifier.
+    /// Individual TWAP slice fill objects.
     pub fills: Vec<serde_json::Value>,
 }
 
