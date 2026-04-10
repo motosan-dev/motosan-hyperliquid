@@ -12,6 +12,9 @@
 //! |------|---------|-------------|
 //! | `k256-signer` | **yes** | Enables [`PrivateKeySigner`] backed by the `k256` crate. Disable this if you bring your own [`Signer`] (HSM, AWS KMS, etc.) to avoid the extra compile-time cost. |
 
+// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
+#![allow(missing_docs)]
+
 pub mod adapter;
 pub mod eip712;
 #[cfg(feature = "k256-signer")]

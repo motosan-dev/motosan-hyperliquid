@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
+documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Hyperliquid EIP-712 signing — Signer trait, PrivateKeySigner, action hashing"
