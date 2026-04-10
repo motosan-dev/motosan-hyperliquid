@@ -120,7 +120,7 @@ impl fmt::Display for OrderStatus {
 }
 
 /// Wire format for an order sent to the Hyperliquid exchange.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderWire {
     /// Asset index (perp index or spot index with offset).
@@ -304,7 +304,7 @@ impl OrderWire {
 /// Serializes to the Hyperliquid wire format:
 /// - Limit: `{"limit": {"tif": "Gtc"}}`
 /// - Trigger: `{"trigger": {"triggerPx": "...", "isMarket": true, "tpsl": "sl"}}`
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrderTypeWire {
     /// A limit order with time-in-force.
     Limit(LimitOrderType),
@@ -382,13 +382,13 @@ impl<'de> Deserialize<'de> for OrderTypeWire {
 }
 
 /// Limit order type wire format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LimitOrderType {
     pub tif: Tif,
 }
 
 /// Trigger order type wire format.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerOrderType {
     pub trigger_px: String,

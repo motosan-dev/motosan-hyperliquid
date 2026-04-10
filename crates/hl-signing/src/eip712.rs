@@ -16,7 +16,7 @@ use motosan_wallet_core::HlTypeField;
 // ============================================================
 
 /// Describes a single field in an EIP-712 struct type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EIP712Field {
     pub name: String,
     pub field_type: String,

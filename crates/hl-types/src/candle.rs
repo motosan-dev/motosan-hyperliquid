@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// An OHLCV candlestick bar from Hyperliquid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HlCandle {
     /// Candle open time in milliseconds since the UNIX epoch.
     pub timestamp: u64,

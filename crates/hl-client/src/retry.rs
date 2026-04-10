@@ -14,7 +14,7 @@ const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 
 /// Configuration for HTTP retry behavior with exponential backoff.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RetryConfig {
     /// Maximum number of retry attempts (excluding the initial request).
     pub max_retries: u32,
@@ -50,7 +50,7 @@ impl RetryConfig {
 /// Controls both the overall request timeout (including response body transfer)
 /// and the TCP connection timeout. Prevents the client from hanging indefinitely
 /// when an exchange API becomes unresponsive.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimeoutConfig {
     /// Maximum time to wait for a complete response (default: 30s).
     pub request_timeout: Duration,

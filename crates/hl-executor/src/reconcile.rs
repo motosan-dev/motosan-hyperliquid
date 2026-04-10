@@ -26,7 +26,7 @@ const ZERO_SIZE_THRESHOLD: Decimal = Decimal::from_parts(1, 0, 0, false, 12); //
 const SIZE_TOLERANCE_BPS: Decimal = Decimal::from_parts(1, 0, 0, false, 3); // 0.001
 
 /// A position tracked by the caller (e.g. from a local database).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalPosition {
     pub id: String,
     pub coin: String,
@@ -36,7 +36,7 @@ pub struct LocalPosition {
 }
 
 /// Summary of a single reconciliation action that should be taken.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReconcileAction {
     /// A local open position no longer exists on the exchange and should be
     /// closed.
@@ -59,7 +59,7 @@ pub enum ReconcileAction {
 }
 
 /// Result returned after a full reconciliation pass.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReconcileReport {
     pub actions: Vec<ReconcileAction>,
     pub exchange_position_count: usize,

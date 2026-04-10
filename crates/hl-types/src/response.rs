@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::order::OrderStatus;
 
 /// Response returned after placing an order.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderResponse {
     /// Exchange-assigned order identifier.
@@ -26,7 +26,7 @@ pub struct OrderResponse {
 /// The Hyperliquid exchange returns `{"status": "ok", "response": {...}}` for
 /// successful actions. This struct captures the top-level status and preserves
 /// the inner response payload and any extra fields.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlActionResponse {
     /// Top-level status string (typically `"ok"`).
