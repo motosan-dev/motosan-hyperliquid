@@ -231,6 +231,7 @@ impl OrderExecutor {
                     }
                 });
             }
+            _ => unreachable!("unknown OrderTypeWire variant"),
         }
 
         // Set cloid if present
