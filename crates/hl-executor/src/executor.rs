@@ -218,16 +218,19 @@ impl OrderExecutor {
         });
 
         // Set order type
-        if let Some(ref limit) = order.order_type.limit {
-            order_json["t"] = serde_json::json!({ "limit": { "tif": limit.tif.to_string() } });
-        } else if let Some(ref trigger) = order.order_type.trigger {
-            order_json["t"] = serde_json::json!({
-                "trigger": {
-                    "triggerPx": trigger.trigger_px,
-                    "isMarket": trigger.is_market,
-                    "tpsl": trigger.tpsl.to_string(),
-                }
-            });
+        match &order.order_type {
+            OrderTypeWire::Limit(limit) => {
+                order_json["t"] = serde_json::json!({ "limit": { "tif": limit.tif.to_string() } });
+            }
+            OrderTypeWire::Trigger(trigger) => {
+                order_json["t"] = serde_json::json!({
+                    "trigger": {
+                        "triggerPx": trigger.trigger_px,
+                        "isMarket": trigger.is_market,
+                        "tpsl": trigger.tpsl.to_string(),
+                    }
+                });
+            }
         }
 
         // Set cloid if present

@@ -20,7 +20,7 @@
 use hl_client::HyperliquidClient;
 use hl_executor::OrderExecutor;
 use hl_signing::PrivateKeySigner;
-use hl_types::{LimitOrderType, OrderStatus, OrderTypeWire, OrderWire, Tif};
+use hl_types::{OrderStatus, OrderWire, Tif};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,20 +52,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Build Order ──────────────────────────────────────────
     // A GTC limit buy at a price well below market (unlikely to fill immediately)
-    let order = OrderWire {
-        asset: btc_idx,
-        is_buy: true,
-        limit_px: "10000.0".to_string(), // Far below market -- safe for testing
-        sz: "0.001".to_string(),
-        reduce_only: false,
-        order_type: OrderTypeWire {
-            limit: Some(LimitOrderType {
-                tif: Tif::Gtc,
-            }),
-            trigger: None,
-        },
-        cloid: Some(HyperliquidClient::generate_cloid()),
-    };
+    let order = OrderWire::limit_buy(btc_idx, "10000.0", "0.001")
+        .tif(Tif::Gtc)
+        .cloid(HyperliquidClient::generate_cloid())
+        .build();
 
     println!(
         "\nSubmitting: {} BTC {} @ {} (tif=Gtc)",

@@ -141,7 +141,7 @@ let fills = account.fills("0xYourAddress").await?;
 use hl_client::HyperliquidClient;
 use hl_signing::PrivateKeySigner;
 use hl_executor::OrderExecutor;
-use hl_types::{OrderWire, OrderTypeWire, LimitOrderType};
+use hl_types::{OrderWire, Tif};
 
 let client = HyperliquidClient::mainnet()?;
 let signer = PrivateKeySigner::from_hex("0xYourPrivateKey")?;
@@ -149,18 +149,10 @@ let address = signer.address().to_string();
 
 let executor = OrderExecutor::from_client(client, Box::new(signer), address).await?;
 
-let order = OrderWire {
-    asset: 0, // BTC index
-    is_buy: true,
-    limit_px: "90000.0".to_string(),
-    sz: "0.001".to_string(),
-    reduce_only: false,
-    order_type: OrderTypeWire {
-        limit: Some(LimitOrderType { tif: "Gtc".to_string() }),
-        trigger: None,
-    },
-    cloid: Some(HyperliquidClient::generate_cloid()),
-};
+let order = OrderWire::limit_buy(0, "90000.0", "0.001") // BTC index
+    .tif(Tif::Gtc)
+    .cloid(HyperliquidClient::generate_cloid())
+    .build();
 
 let response = executor.place_order(order, None).await?;
 println!("Order {}: status={}", response.order_id, response.status);
