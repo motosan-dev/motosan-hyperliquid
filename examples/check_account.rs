@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  (no vaults)");
     } else {
         for (i, v) in vaults.iter().enumerate() {
-            println!("  Vault {}: {}", i + 1, v);
+            println!("  Vault {}: {:?}", i + 1, v);
         }
     }
 
