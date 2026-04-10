@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +51,71 @@ pub struct HlAccountState {
     pub margin_available: Decimal,
     /// Open positions.
     pub positions: Vec<HlPosition>,
+}
+
+/// Summary of a vault the user participates in.
+///
+/// Returned by the `vaultSummaries` info endpoint. Fields that the API may
+/// add in the future are captured in `extra`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HlVaultSummary {
+    /// On-chain vault address.
+    pub vault_address: String,
+    /// Human-readable vault name.
+    pub name: String,
+    /// Vault leader's equity (USDC).
+    #[serde(default)]
+    pub leader_equity: Option<Decimal>,
+    /// Total follower equity (USDC).
+    #[serde(default)]
+    pub follower_equity: Option<Decimal>,
+    /// Vault's all-time PnL.
+    #[serde(default)]
+    pub all_time_pnl: Option<Decimal>,
+    /// Any additional fields returned by the API.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Detailed information about a specific vault.
+///
+/// Returned by the `vaultDetails` info endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HlVaultDetails {
+    /// Vault name.
+    pub name: String,
+    /// On-chain vault address.
+    pub vault_address: String,
+    /// Vault leader address.
+    #[serde(default)]
+    pub leader: Option<String>,
+    /// Portfolio state of the vault (positions, equity, etc.).
+    #[serde(default)]
+    pub portfolio: Option<serde_json::Value>,
+    /// Number of followers.
+    #[serde(default)]
+    pub follower_count: Option<u64>,
+    /// Any additional fields returned by the API.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// An extra (sub-)agent approval entry.
+///
+/// Returned by the `extraAgents` info endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HlExtraAgent {
+    /// Address of the approved agent.
+    pub address: String,
+    /// Human-readable agent name, if set.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Any additional fields returned by the API.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -195,5 +262,161 @@ mod tests {
         };
         let json = serde_json::to_string(&state).unwrap();
         assert!(json.contains("marginAvailable"));
+    }
+
+    #[test]
+    fn vault_summary_serde_roundtrip() {
+        let json = serde_json::json!({
+            "vaultAddress": "0xabc123",
+            "name": "My Vault",
+            "leaderEquity": "10000.0",
+            "followerEquity": "50000.0",
+            "allTimePnl": "2500.0"
+        });
+        let parsed: HlVaultSummary = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.vault_address, "0xabc123");
+        assert_eq!(parsed.name, "My Vault");
+        assert_eq!(
+            parsed.leader_equity,
+            Some(Decimal::from_str("10000.0").unwrap())
+        );
+        assert_eq!(
+            parsed.follower_equity,
+            Some(Decimal::from_str("50000.0").unwrap())
+        );
+        assert_eq!(
+            parsed.all_time_pnl,
+            Some(Decimal::from_str("2500.0").unwrap())
+        );
+    }
+
+    #[test]
+    fn vault_summary_minimal_fields() {
+        let json = serde_json::json!({
+            "vaultAddress": "0xdef456",
+            "name": "Minimal Vault"
+        });
+        let parsed: HlVaultSummary = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.vault_address, "0xdef456");
+        assert_eq!(parsed.name, "Minimal Vault");
+        assert!(parsed.leader_equity.is_none());
+        assert!(parsed.follower_equity.is_none());
+        assert!(parsed.all_time_pnl.is_none());
+    }
+
+    #[test]
+    fn vault_summary_extra_fields_captured() {
+        let json = serde_json::json!({
+            "vaultAddress": "0x111",
+            "name": "V",
+            "someNewField": 42
+        });
+        let parsed: HlVaultSummary = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            parsed.extra.get("someNewField").unwrap(),
+            &serde_json::json!(42)
+        );
+    }
+
+    #[test]
+    fn vault_summary_camel_case_keys() {
+        let summary = HlVaultSummary {
+            vault_address: "0x1".into(),
+            name: "V".into(),
+            leader_equity: Some(Decimal::ONE),
+            follower_equity: None,
+            all_time_pnl: None,
+            extra: HashMap::new(),
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.contains("vaultAddress"));
+        assert!(json.contains("leaderEquity"));
+    }
+
+    #[test]
+    fn vault_details_serde_roundtrip() {
+        let json = serde_json::json!({
+            "name": "Alpha Vault",
+            "vaultAddress": "0xvault",
+            "leader": "0xleader",
+            "portfolio": {"equity": "100000"},
+            "followerCount": 25
+        });
+        let parsed: HlVaultDetails = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.name, "Alpha Vault");
+        assert_eq!(parsed.vault_address, "0xvault");
+        assert_eq!(parsed.leader.as_deref(), Some("0xleader"));
+        assert!(parsed.portfolio.is_some());
+        assert_eq!(parsed.follower_count, Some(25));
+    }
+
+    #[test]
+    fn vault_details_minimal_fields() {
+        let json = serde_json::json!({
+            "name": "Min",
+            "vaultAddress": "0xmin"
+        });
+        let parsed: HlVaultDetails = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.name, "Min");
+        assert!(parsed.leader.is_none());
+        assert!(parsed.portfolio.is_none());
+        assert!(parsed.follower_count.is_none());
+    }
+
+    #[test]
+    fn vault_details_extra_fields_captured() {
+        let json = serde_json::json!({
+            "name": "V",
+            "vaultAddress": "0x1",
+            "customMetric": "hello"
+        });
+        let parsed: HlVaultDetails = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            parsed.extra.get("customMetric").unwrap(),
+            &serde_json::json!("hello")
+        );
+    }
+
+    #[test]
+    fn extra_agent_serde_roundtrip() {
+        let json = serde_json::json!({
+            "address": "0xagent1",
+            "name": "Trading Bot"
+        });
+        let parsed: HlExtraAgent = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.address, "0xagent1");
+        assert_eq!(parsed.name.as_deref(), Some("Trading Bot"));
+    }
+
+    #[test]
+    fn extra_agent_minimal_fields() {
+        let json = serde_json::json!({
+            "address": "0xagent2"
+        });
+        let parsed: HlExtraAgent = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.address, "0xagent2");
+        assert!(parsed.name.is_none());
+    }
+
+    #[test]
+    fn extra_agent_extra_fields_captured() {
+        let json = serde_json::json!({
+            "address": "0xagent3",
+            "permissions": ["trade", "withdraw"]
+        });
+        let parsed: HlExtraAgent = serde_json::from_value(json).unwrap();
+        assert!(parsed.extra.contains_key("permissions"));
+    }
+
+    #[test]
+    fn extra_agent_camel_case_keys() {
+        let agent = HlExtraAgent {
+            address: "0x1".into(),
+            name: Some("Bot".into()),
+            extra: HashMap::new(),
+        };
+        let json = serde_json::to_string(&agent).unwrap();
+        assert!(json.contains("address"));
+        assert!(json.contains("name"));
     }
 }

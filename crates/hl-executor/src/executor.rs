@@ -306,7 +306,7 @@ impl OrderExecutor {
         asset: u32,
         oid: u64,
         vault: Option<&str>,
-    ) -> Result<serde_json::Value, HlError> {
+    ) -> Result<HlActionResponse, HlError> {
         let action = serde_json::json!({
             "type": "cancel",
             "cancels": [{"a": asset, "o": oid}]
@@ -320,7 +320,9 @@ impl OrderExecutor {
             self.client.is_mainnet(),
             vault,
         )?;
-        self.client.post_action(action, &sig, nonce, vault).await
+        let resp = self.client.post_action(action, &sig, nonce, vault).await?;
+        serde_json::from_value(resp)
+            .map_err(|e| HlError::Parse(format!("cancel_order response: {e}")))
     }
 
     /// Place a trigger order (stop-loss or take-profit) on Hyperliquid.
@@ -437,7 +439,7 @@ impl OrderExecutor {
         &self,
         vault: &str,
         amount: Decimal,
-    ) -> Result<serde_json::Value, HlError> {
+    ) -> Result<HlActionResponse, HlError> {
         let action = serde_json::json!({
             "type": "vaultTransfer",
             "vaultAddress": vault,
@@ -453,7 +455,9 @@ impl OrderExecutor {
             self.client.is_mainnet(),
             None,
         )?;
-        self.client.post_action(action, &sig, nonce, None).await
+        let resp = self.client.post_action(action, &sig, nonce, None).await?;
+        serde_json::from_value(resp)
+            .map_err(|e| HlError::Parse(format!("transfer_to_vault response: {e}")))
     }
 
     /// Borrow the underlying HTTP transport.

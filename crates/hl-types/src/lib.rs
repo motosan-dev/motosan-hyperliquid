@@ -17,7 +17,9 @@ pub mod response;
 pub mod signature;
 pub mod util;
 
-pub use account::{HlAccountState, HlFill, HlPosition};
+pub use account::{
+    HlAccountState, HlExtraAgent, HlFill, HlPosition, HlVaultDetails, HlVaultSummary,
+};
 pub use candle::HlCandle;
 pub use error::HlError;
 pub use market::{HlAssetInfo, HlFundingRate, HlOrderbook};
@@ -25,7 +27,7 @@ pub use order::{
     LimitOrderType, OrderStatus, OrderTypeWire, OrderWire, OrderWireBuilder, PositionSide, Side,
     Tif, Tpsl, TriggerOrderType,
 };
-pub use response::OrderResponse;
+pub use response::{HlActionResponse, OrderResponse};
 pub use rust_decimal::Decimal;
 pub use signature::Signature;
 pub use util::normalize_coin;

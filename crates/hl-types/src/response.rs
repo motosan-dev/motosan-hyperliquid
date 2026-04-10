@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +19,31 @@ pub struct OrderResponse {
     pub requested_size: Decimal,
     /// Order status.
     pub status: OrderStatus,
+}
+
+/// Generic response from an exchange action (cancel, transfer, etc.).
+///
+/// The Hyperliquid exchange returns `{"status": "ok", "response": {...}}` for
+/// successful actions. This struct captures the top-level status and preserves
+/// the inner response payload and any extra fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HlActionResponse {
+    /// Top-level status string (typically `"ok"`).
+    pub status: String,
+    /// Inner response payload, if present.
+    #[serde(default)]
+    pub response: Option<serde_json::Value>,
+    /// Any additional top-level fields returned by the API.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl HlActionResponse {
+    /// Returns `true` if the exchange reported status `"ok"`.
+    pub fn is_ok(&self) -> bool {
+        self.status == "ok"
+    }
 }
 
 #[cfg(test)]
@@ -74,5 +101,59 @@ mod tests {
         assert!(json.contains("filledPrice"));
         assert!(json.contains("filledSize"));
         assert!(json.contains("requestedSize"));
+    }
+
+    #[test]
+    fn action_response_ok_roundtrip() {
+        let json = serde_json::json!({
+            "status": "ok",
+            "response": {"type": "cancel", "data": {"statuses": ["success"]}}
+        });
+        let parsed: HlActionResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.status, "ok");
+        assert!(parsed.is_ok());
+        assert!(parsed.response.is_some());
+    }
+
+    #[test]
+    fn action_response_error() {
+        let json = serde_json::json!({
+            "status": "err",
+            "response": "Order not found"
+        });
+        let parsed: HlActionResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.status, "err");
+        assert!(!parsed.is_ok());
+    }
+
+    #[test]
+    fn action_response_no_response_field() {
+        let json = serde_json::json!({ "status": "ok" });
+        let parsed: HlActionResponse = serde_json::from_value(json).unwrap();
+        assert!(parsed.is_ok());
+        assert!(parsed.response.is_none());
+    }
+
+    #[test]
+    fn action_response_extra_fields_captured() {
+        let json = serde_json::json!({
+            "status": "ok",
+            "timestamp": 1700000000
+        });
+        let parsed: HlActionResponse = serde_json::from_value(json).unwrap();
+        assert!(parsed.extra.contains_key("timestamp"));
+    }
+
+    #[test]
+    fn action_response_serde_roundtrip() {
+        let resp = HlActionResponse {
+            status: "ok".into(),
+            response: Some(serde_json::json!({"data": "test"})),
+            extra: HashMap::new(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let parsed: HlActionResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.status, "ok");
+        assert!(parsed.response.is_some());
     }
 }
