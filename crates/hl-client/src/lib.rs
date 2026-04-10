@@ -24,5 +24,5 @@ pub use ws::{
     ActiveAssetCtxData, ActiveAssetDataMsg, AllMidsData, BboData, CandleData,
     ClearinghouseStateData, HyperliquidWs, L2BookData, OrderUpdateData, Subscription, TradesData,
     UserEventsData, UserFillsData, UserFundingsData, UserTwapHistoryData, UserTwapSliceFillsData,
-    WebData3Data, WsConfig, WsMessage,
+    WebData3Data, WsConfig, WsMessage, WsTrade,
 };

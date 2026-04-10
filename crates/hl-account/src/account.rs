@@ -1,13 +1,13 @@
-use std::str::FromStr;
 use std::sync::Arc;
 
 use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    HlAccountState, HlBorrowLendState, HlError, HlExtraAgent, HlFill, HlFundingEntry,
-    HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlSpotBalance,
-    HlStakingDelegation, HlUserFees, HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
+    parse_str_decimal, HlAccountState, HlBorrowLendState, HlError, HlExtraAgent, HlFill,
+    HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus,
+    HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry, HlVaultDetails,
+    HlVaultSummary,
 };
 
 /// Typed interface for Hyperliquid account state queries.
@@ -241,24 +241,6 @@ impl Account {
     }
 }
 
-/// Parse a string-encoded decimal from a JSON value, returning an error on failure.
-fn parse_str_decimal(val: &serde_json::Value, field: &str) -> Result<Decimal, HlError> {
-    match val {
-        serde_json::Value::String(s) => Decimal::from_str(s).map_err(|_| {
-            HlError::Parse(format!("cannot parse '{field}' value \"{s}\" as Decimal"))
-        }),
-        serde_json::Value::Number(n) => {
-            let s = n.to_string();
-            Decimal::from_str(&s)
-                .map_err(|_| HlError::Parse(format!("cannot convert '{field}' number to Decimal")))
-        }
-        serde_json::Value::Null => Err(HlError::Parse(format!("field '{field}' is null"))),
-        v => Err(HlError::Parse(format!(
-            "unexpected type for '{field}': expected string or number, got {v}"
-        ))),
-    }
-}
-
 /// A small threshold used to detect zero-size (closed) positions.
 const ZERO_SIZE_THRESHOLD: Decimal = Decimal::from_parts(1, 0, 0, false, 12); // 1e-12
 
@@ -271,24 +253,14 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
         .get("marginSummary")
         .ok_or_else(|| HlError::Parse("missing 'marginSummary' in clearinghouseState".into()))?;
 
-    let equity: Decimal = parse_str_decimal(
-        margin_summary
-            .get("accountValue")
-            .ok_or_else(|| HlError::Parse("missing 'accountValue' in marginSummary".into()))?,
-        "accountValue",
-    )?;
+    let equity: Decimal = parse_str_decimal(margin_summary.get("accountValue"), "accountValue")?;
 
-    let margin_available: Decimal = {
-        let raw = margin_summary
+    let margin_available: Decimal = parse_str_decimal(
+        margin_summary
             .get("totalRawUsd")
-            .or_else(|| margin_summary.get("availableMargin"))
-            .ok_or_else(|| {
-                HlError::Parse(
-                    "missing 'totalRawUsd' and 'availableMargin' in marginSummary".into(),
-                )
-            })?;
-        parse_str_decimal(raw, "totalRawUsd/availableMargin")?
-    };
+            .or_else(|| margin_summary.get("availableMargin")),
+        "totalRawUsd/availableMargin",
+    )?;
 
     let mut positions = Vec::new();
 
@@ -298,11 +270,7 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
 
             // Size: parse with error propagation. A size of 0.0 is valid
             // (means the position is closed), so we skip it rather than error.
-            let size: Decimal = parse_str_decimal(
-                p.get("szi")
-                    .ok_or_else(|| HlError::Parse("missing 'szi' in position".into()))?,
-                "szi",
-            )?;
+            let size: Decimal = parse_str_decimal(p.get("szi"), "szi")?;
             if size.abs() < ZERO_SIZE_THRESHOLD {
                 continue;
             }
@@ -315,25 +283,18 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
                 }
             };
 
-            let entry_px: Decimal = parse_str_decimal(
-                p.get("entryPx")
-                    .ok_or_else(|| HlError::Parse("missing 'entryPx' in position".into()))?,
-                "entryPx",
-            )?;
-            let unrealized_pnl: Decimal = parse_str_decimal(
-                p.get("unrealizedPnl")
-                    .ok_or_else(|| HlError::Parse("missing 'unrealizedPnl' in position".into()))?,
-                "unrealizedPnl",
-            )?;
-            let leverage: Decimal = match p.get("leverage").and_then(|l| l.get("value")) {
-                Some(v) => parse_str_decimal(v, "leverage.value")
-                    // Leverage defaults to 1.0 if unparseable (cross-margin mode).
-                    .unwrap_or(Decimal::ONE),
-                None => Decimal::ONE,
-            };
+            let entry_px: Decimal = parse_str_decimal(p.get("entryPx"), "entryPx")?;
+            let unrealized_pnl: Decimal =
+                parse_str_decimal(p.get("unrealizedPnl"), "unrealizedPnl")?;
+            let leverage: Decimal = parse_str_decimal(
+                p.get("leverage").and_then(|l| l.get("value")),
+                "leverage.value",
+            )
+            // Leverage defaults to 1.0 if unparseable (cross-margin mode).
+            .unwrap_or(Decimal::ONE);
             let liquidation_px: Option<Decimal> = match p.get("liquidationPx") {
                 Some(serde_json::Value::Null) | None => None,
-                Some(v) => Some(parse_str_decimal(v, "liquidationPx")?),
+                Some(v) => Some(parse_str_decimal(Some(v), "liquidationPx")?),
             };
 
             positions.push(HlPosition::new(
@@ -370,16 +331,8 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
             }
         };
 
-        let px: Decimal = parse_str_decimal(
-            fill.get("px")
-                .ok_or_else(|| HlError::Parse("missing 'px' in fill".into()))?,
-            "px",
-        )?;
-        let sz: Decimal = parse_str_decimal(
-            fill.get("sz")
-                .ok_or_else(|| HlError::Parse("missing 'sz' in fill".into()))?,
-            "sz",
-        )?;
+        let px: Decimal = parse_str_decimal(fill.get("px"), "px")?;
+        let sz: Decimal = parse_str_decimal(fill.get("sz"), "sz")?;
         let is_buy = fill
             .get("side")
             .and_then(|v| v.as_str())
@@ -389,16 +342,10 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
             .get("time")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| HlError::Parse("missing or invalid 'time' in fill".into()))?;
-        let fee: Decimal = parse_str_decimal(
-            fill.get("fee")
-                .ok_or_else(|| HlError::Parse("missing 'fee' in fill".into()))?,
-            "fee",
-        )?;
+        let fee: Decimal = parse_str_decimal(fill.get("fee"), "fee")?;
         // closedPnl may be 0.0 legitimately (no realized PnL), default to 0.0 if missing.
-        let closed_pnl: Decimal = match fill.get("closedPnl") {
-            Some(v) => parse_str_decimal(v, "closedPnl")?,
-            None => Decimal::ZERO,
-        };
+        let closed_pnl: Decimal =
+            parse_str_decimal(fill.get("closedPnl"), "closedPnl").unwrap_or(Decimal::ZERO);
 
         fills.push(HlFill::new(
             coin, px, sz, is_buy, timestamp, fee, closed_pnl,
@@ -434,17 +381,9 @@ pub fn parse_spot_state(resp: &serde_json::Value) -> Result<Vec<HlSpotBalance>, 
             .ok_or_else(|| HlError::Parse("missing 'token' in spot balance".into()))?
             as u32;
 
-        let hold = parse_str_decimal(
-            item.get("hold")
-                .ok_or_else(|| HlError::Parse("missing 'hold' in spot balance".into()))?,
-            "hold",
-        )?;
+        let hold = parse_str_decimal(item.get("hold"), "hold")?;
 
-        let total = parse_str_decimal(
-            item.get("total")
-                .ok_or_else(|| HlError::Parse("missing 'total' in spot balance".into()))?,
-            "total",
-        )?;
+        let total = parse_str_decimal(item.get("total"), "total")?;
 
         balances.push(HlSpotBalance::new(coin, token, hold, total));
     }
@@ -471,16 +410,8 @@ pub fn parse_staking_delegations(
                 continue;
             }
         };
-        let amount = parse_str_decimal(
-            item.get("amount")
-                .ok_or_else(|| HlError::Parse("missing 'amount' in delegation".into()))?,
-            "amount",
-        )?;
-        let rewards = parse_str_decimal(
-            item.get("rewards")
-                .ok_or_else(|| HlError::Parse("missing 'rewards' in delegation".into()))?,
-            "rewards",
-        )?;
+        let amount = parse_str_decimal(item.get("amount"), "amount")?;
+        let rewards = parse_str_decimal(item.get("rewards"), "rewards")?;
         delegations.push(HlStakingDelegation::new(validator, amount, rewards));
     }
 
@@ -519,9 +450,9 @@ pub fn parse_borrow_lend_state(
             }
         };
 
-        let supply = parse_str_decimal(supply_val, "supply")?;
-        let borrow = parse_str_decimal(borrow_val, "borrow")?;
-        let apy = parse_str_decimal(apy_val, "apy")?;
+        let supply = parse_str_decimal(Some(supply_val), "supply")?;
+        let borrow = parse_str_decimal(Some(borrow_val), "borrow")?;
+        let apy = parse_str_decimal(Some(apy_val), "apy")?;
 
         states.push(HlBorrowLendState::new(coin, supply, borrow, apy));
     }
@@ -545,17 +476,9 @@ pub fn parse_user_fees(resp: &serde_json::Value) -> Result<HlUserFees, HlError> 
         })
         .unwrap_or_default();
 
-    let maker_rate = parse_str_decimal(
-        resp.get("userCrossRate")
-            .ok_or_else(|| HlError::Parse("missing 'userCrossRate' in userFees".into()))?,
-        "userCrossRate",
-    )?;
+    let maker_rate = parse_str_decimal(resp.get("userCrossRate"), "userCrossRate")?;
 
-    let taker_rate = parse_str_decimal(
-        resp.get("userAddRate")
-            .ok_or_else(|| HlError::Parse("missing 'userAddRate' in userFees".into()))?,
-        "userAddRate",
-    )?;
+    let taker_rate = parse_str_decimal(resp.get("userAddRate"), "userAddRate")?;
 
     Ok(HlUserFees::new(fee_tier, maker_rate, taker_rate))
 }
@@ -594,16 +517,8 @@ fn parse_order_fields(
         .and_then(|v| v.as_str())
         .ok_or_else(|| HlError::Parse(format!("missing 'side' in {context}")))?
         .to_string();
-    let limit_px = parse_str_decimal(
-        item.get("limitPx")
-            .ok_or_else(|| HlError::Parse(format!("missing 'limitPx' in {context}")))?,
-        "limitPx",
-    )?;
-    let sz = parse_str_decimal(
-        item.get("sz")
-            .ok_or_else(|| HlError::Parse(format!("missing 'sz' in {context}")))?,
-        "sz",
-    )?;
+    let limit_px = parse_str_decimal(item.get("limitPx"), "limitPx")?;
+    let sz = parse_str_decimal(item.get("sz"), "sz")?;
     let timestamp = item
         .get("timestamp")
         .and_then(|v| v.as_u64())
@@ -675,16 +590,8 @@ pub fn parse_funding_history(resp: &serde_json::Value) -> Result<Vec<HlFundingEn
             .and_then(|v| v.as_str())
             .ok_or_else(|| HlError::Parse("missing 'coin' in fundingHistory entry".into()))?
             .to_string();
-        let funding_rate = parse_str_decimal(
-            item.get("fundingRate")
-                .ok_or_else(|| HlError::Parse("missing 'fundingRate' in fundingHistory".into()))?,
-            "fundingRate",
-        )?;
-        let premium = parse_str_decimal(
-            item.get("premium")
-                .ok_or_else(|| HlError::Parse("missing 'premium' in fundingHistory".into()))?,
-            "premium",
-        )?;
+        let funding_rate = parse_str_decimal(item.get("fundingRate"), "fundingRate")?;
+        let premium = parse_str_decimal(item.get("premium"), "premium")?;
         let time = item
             .get("time")
             .and_then(|v| v.as_u64())
@@ -709,21 +616,9 @@ pub fn parse_user_funding(resp: &serde_json::Value) -> Result<Vec<HlUserFundingE
             .and_then(|v| v.as_str())
             .ok_or_else(|| HlError::Parse("missing 'coin' in userFunding entry".into()))?
             .to_string();
-        let usdc = parse_str_decimal(
-            item.get("usdc")
-                .ok_or_else(|| HlError::Parse("missing 'usdc' in userFunding".into()))?,
-            "usdc",
-        )?;
-        let szi = parse_str_decimal(
-            item.get("szi")
-                .ok_or_else(|| HlError::Parse("missing 'szi' in userFunding".into()))?,
-            "szi",
-        )?;
-        let funding_rate = parse_str_decimal(
-            item.get("fundingRate")
-                .ok_or_else(|| HlError::Parse("missing 'fundingRate' in userFunding".into()))?,
-            "fundingRate",
-        )?;
+        let usdc = parse_str_decimal(item.get("usdc"), "usdc")?;
+        let szi = parse_str_decimal(item.get("szi"), "szi")?;
+        let funding_rate = parse_str_decimal(item.get("fundingRate"), "fundingRate")?;
         let time = item
             .get("time")
             .and_then(|v| v.as_u64())
@@ -788,6 +683,8 @@ pub fn parse_rate_limit_status(resp: &serde_json::Value) -> Result<HlRateLimitSt
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     fn make_clearinghouse_resp() -> serde_json::Value {
