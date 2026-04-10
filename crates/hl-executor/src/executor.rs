@@ -1,10 +1,11 @@
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rust_decimal::Decimal;
 
-use hl_client::HyperliquidClient;
+use hl_client::{HttpTransport, HyperliquidClient};
 use hl_signing::{sign_l1_action, Signer};
 use hl_types::*;
 
@@ -106,7 +107,7 @@ const FILL_THRESHOLD: Decimal = Decimal::from_parts(99, 0, 0, false, 2); // 0.99
 /// hyper-agent-specific dependencies (no `OrderSubmitter` trait, no
 /// `PositionManager`).
 pub struct OrderExecutor {
-    client: HyperliquidClient,
+    client: Arc<dyn HttpTransport>,
     signer: Box<dyn Signer>,
     address: String,
     meta_cache: AssetMetaCache,
@@ -122,11 +123,11 @@ pub struct OrderExecutor {
 impl OrderExecutor {
     /// Create a new executor, loading the asset meta cache from the exchange.
     pub async fn new(
-        client: HyperliquidClient,
+        client: Arc<dyn HttpTransport>,
         signer: Box<dyn Signer>,
         address: String,
     ) -> Result<Self, HlError> {
-        let meta_cache = AssetMetaCache::load(&client).await?;
+        let meta_cache = AssetMetaCache::load(client.as_ref()).await?;
         Ok(Self {
             client,
             signer,
@@ -136,9 +137,18 @@ impl OrderExecutor {
         })
     }
 
+    /// Convenience constructor that wraps a [`HyperliquidClient`] in an `Arc`.
+    pub async fn from_client(
+        client: HyperliquidClient,
+        signer: Box<dyn Signer>,
+        address: String,
+    ) -> Result<Self, HlError> {
+        Self::new(Arc::new(client), signer, address).await
+    }
+
     /// Create an executor with a pre-built meta cache (avoids the network call).
     pub fn with_meta_cache(
-        client: HyperliquidClient,
+        client: Arc<dyn HttpTransport>,
         signer: Box<dyn Signer>,
         address: String,
         meta_cache: AssetMetaCache,
@@ -150,6 +160,16 @@ impl OrderExecutor {
             meta_cache,
             nonce: AtomicU64::new(0),
         }
+    }
+
+    /// Convenience constructor with meta cache that wraps a [`HyperliquidClient`] in an `Arc`.
+    pub fn from_client_with_meta_cache(
+        client: HyperliquidClient,
+        signer: Box<dyn Signer>,
+        address: String,
+        meta_cache: AssetMetaCache,
+    ) -> Self {
+        Self::with_meta_cache(Arc::new(client), signer, address, meta_cache)
     }
 
     /// Generate a monotonically increasing nonce based on the current time in
@@ -433,9 +453,9 @@ impl OrderExecutor {
         self.client.post_action(action, &sig, nonce, None).await
     }
 
-    /// Borrow the underlying HTTP client.
-    pub fn client(&self) -> &HyperliquidClient {
-        &self.client
+    /// Borrow the underlying HTTP transport.
+    pub fn client(&self) -> &dyn HttpTransport {
+        self.client.as_ref()
     }
 
     /// Return the wallet address used for signing.

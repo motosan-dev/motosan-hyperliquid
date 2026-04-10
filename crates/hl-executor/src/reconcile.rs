@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use rust_decimal::Decimal;
 
-use hl_client::HyperliquidClient;
+use hl_client::HttpTransport;
 use hl_types::{HlError, PositionSide};
 
 /// A small threshold used to detect zero-size (closed) positions.
@@ -129,7 +129,7 @@ fn parse_exchange_positions(resp: &serde_json::Value) -> Vec<ExchangePosition> {
 /// The caller is responsible for applying the actions (e.g. updating a
 /// database).
 pub async fn reconcile_positions(
-    client: &HyperliquidClient,
+    client: &dyn HttpTransport,
     address: &str,
     local: &[LocalPosition],
 ) -> Result<ReconcileReport, HlError> {

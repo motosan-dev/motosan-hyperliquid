@@ -1,8 +1,10 @@
 use std::time::Duration;
 
+use async_trait::async_trait;
 use hl_types::{HlError, Signature};
 
 use crate::retry::{RetryConfig, TimeoutConfig};
+use crate::transport::HttpTransport;
 
 /// Mainnet REST API URL.
 const MAINNET_API_URL: &str = "https://api.hyperliquid.xyz";
@@ -262,6 +264,28 @@ impl HyperliquidClient {
         }
 
         Ok(body)
+    }
+}
+
+#[async_trait]
+impl HttpTransport for HyperliquidClient {
+    async fn post_info(&self, request: serde_json::Value) -> Result<serde_json::Value, HlError> {
+        self.post_info(request).await
+    }
+
+    async fn post_action(
+        &self,
+        action: serde_json::Value,
+        signature: &Signature,
+        nonce: u64,
+        vault_address: Option<&str>,
+    ) -> Result<serde_json::Value, HlError> {
+        self.post_action(action, signature, nonce, vault_address)
+            .await
+    }
+
+    fn is_mainnet(&self) -> bool {
+        self.is_mainnet()
     }
 }
 

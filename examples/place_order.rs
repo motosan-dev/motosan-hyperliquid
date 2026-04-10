@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = signer.address().to_string();
     println!("Wallet address: {}", address);
 
-    let executor = OrderExecutor::new(client, Box::new(signer), address).await?;
+    let executor = OrderExecutor::from_client(client, Box::new(signer), address).await?;
 
     // Look up BTC asset index from the meta cache
     let btc_idx = executor

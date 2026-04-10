@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let client = HyperliquidClient::mainnet()?;
-    let account = Account::new(client);
+    let account = Account::from_client(client);
 
     // ── Account State ────────────────────────────────────────
     println!("=== Account State for {} ===", &address[..10]);

@@ -32,7 +32,7 @@ async fn live_asset_meta_cache_load() {
 #[tokio::test]
 async fn live_order_executor_construction() {
     let (client, signer, address) = setup();
-    let executor = OrderExecutor::new(client, signer, address).await;
+    let executor = OrderExecutor::from_client(client, signer, address).await;
     assert!(
         executor.is_ok(),
         "executor construction failed: {:?}",

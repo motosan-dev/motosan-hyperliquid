@@ -8,12 +8,14 @@
 
 pub mod client;
 pub mod retry;
+pub mod transport;
 
 #[cfg(feature = "ws")]
 pub mod ws;
 
 pub use client::HyperliquidClient;
 pub use retry::{RetryConfig, TimeoutConfig};
+pub use transport::HttpTransport;
 
 #[cfg(feature = "ws")]
 pub use ws::{HyperliquidWs, WsConfig};

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hl_client::HyperliquidClient;
+use hl_client::HttpTransport;
 use hl_types::HlError;
 
 /// Cache of asset name -> index and size-decimal mappings from the Hyperliquid
@@ -17,7 +17,7 @@ pub struct AssetMetaCache {
 
 impl AssetMetaCache {
     /// Fetch asset metadata from the exchange info endpoint and build the cache.
-    pub async fn load(client: &HyperliquidClient) -> Result<Self, HlError> {
+    pub async fn load(client: &dyn HttpTransport) -> Result<Self, HlError> {
         let meta = client
             .post_info(serde_json::json!({"type": "meta"}))
             .await?;
