@@ -65,18 +65,7 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected usdSend: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("usdc_transfer response: {e}")))
+        Self::check_and_parse_response(result, "usdSend")
     }
 
     /// Withdraw USDC from Hyperliquid to an EVM address.
@@ -121,18 +110,7 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected withdraw3: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("withdraw response: {e}")))
+        Self::check_and_parse_response(result, "withdraw3")
     }
 
     /// Send spot tokens to another address on the Hyperliquid L1.
@@ -183,18 +161,7 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected spotSend: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("spot_send response: {e}")))
+        Self::check_and_parse_response(result, "spotSend")
     }
 
     /// Transfer funds between spot and perp accounts.
