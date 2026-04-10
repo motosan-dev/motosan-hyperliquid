@@ -5,8 +5,8 @@ use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook, HlSpotAssetInfo,
-    HlSpotMeta,
+    normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook, HlPerpDexStatus,
+    HlSpotAssetInfo, HlSpotMeta,
 };
 
 /// Typed interface for Hyperliquid market data queries.
@@ -106,6 +106,22 @@ impl MarketData {
                 "empty orderbook for {coin}, cannot compute mid price"
             ))),
         }
+    }
+
+    /// Fetch status of a builder-deployed perpetual DEX (HIP-3).
+    #[tracing::instrument(skip(self))]
+    pub async fn perp_dex_status(&self, dex_name: &str) -> Result<HlPerpDexStatus, HlError> {
+        let payload = serde_json::json!({ "type": "perpDexStatus", "dexName": dex_name });
+        let resp = self.client.post_info(payload).await?;
+        parse_perp_dex_status(&resp, dex_name)
+    }
+
+    /// Fetch list of assets currently at open interest cap.
+    #[tracing::instrument(skip(self))]
+    pub async fn perps_at_oi_cap(&self) -> Result<Vec<String>, HlError> {
+        let payload = serde_json::json!({ "type": "perpsAtOpenInterestCap" });
+        let resp = self.client.post_info(payload).await?;
+        parse_perps_at_oi_cap(&resp)
     }
 }
 
@@ -383,6 +399,57 @@ pub fn parse_spot_meta(response: &serde_json::Value) -> Result<HlSpotMeta, HlErr
     }
 
     Ok(HlSpotMeta::new(tokens))
+}
+
+/// Parse a `perpDexStatus` JSON response into an [`HlPerpDexStatus`].
+///
+/// The response is an object:
+///   `{ "name": "...", "isActive": true, "numAssets": 5, "totalOi": "1000000.0" }`
+///
+/// If the `name` field is missing from the response, `dex_name` is used as fallback.
+pub fn parse_perp_dex_status(
+    response: &serde_json::Value,
+    dex_name: &str,
+) -> Result<HlPerpDexStatus, HlError> {
+    let name = response
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(dex_name)
+        .to_string();
+
+    let is_active = response
+        .get("isActive")
+        .and_then(|v| v.as_bool())
+        .ok_or_else(|| parse_err("missing 'isActive' in perpDexStatus"))?;
+
+    let num_assets = response
+        .get("numAssets")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| parse_err("missing 'numAssets' in perpDexStatus"))?
+        as u32;
+
+    let total_oi = parse_str_decimal(response.get("totalOi"), "totalOi")?;
+
+    Ok(HlPerpDexStatus::new(name, is_active, num_assets, total_oi))
+}
+
+/// Parse a `perpsAtOpenInterestCap` JSON response into a list of coin names.
+///
+/// The response is a JSON array of strings: `["BTC", "ETH", ...]`
+pub fn parse_perps_at_oi_cap(response: &serde_json::Value) -> Result<Vec<String>, HlError> {
+    let arr = response
+        .as_array()
+        .ok_or_else(|| parse_err("perpsAtOpenInterestCap response is not an array"))?;
+
+    let mut coins = Vec::with_capacity(arr.len());
+    for item in arr {
+        let coin = item
+            .as_str()
+            .ok_or_else(|| parse_err("perpsAtOpenInterestCap entry is not a string"))?;
+        coins.push(coin.to_string());
+    }
+
+    Ok(coins)
 }
 
 /// Convert a candle interval string to its duration in milliseconds.
@@ -841,5 +908,161 @@ mod tests {
 
         let result = market.orderbook("BTC").await;
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // HIP-3 multi-DEX parser tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_perp_dex_status_valid() {
+        let json = serde_json::json!({
+            "name": "HyperBTC",
+            "isActive": true,
+            "numAssets": 5,
+            "totalOi": "1000000.0"
+        });
+        let status = parse_perp_dex_status(&json, "HyperBTC").unwrap();
+        assert_eq!(status.name, "HyperBTC");
+        assert!(status.is_active);
+        assert_eq!(status.num_assets, 5);
+        assert_eq!(status.total_oi, Decimal::from_str("1000000.0").unwrap());
+    }
+
+    #[test]
+    fn test_parse_perp_dex_status_inactive() {
+        let json = serde_json::json!({
+            "name": "TestDex",
+            "isActive": false,
+            "numAssets": 0,
+            "totalOi": "0"
+        });
+        let status = parse_perp_dex_status(&json, "TestDex").unwrap();
+        assert!(!status.is_active);
+        assert_eq!(status.num_assets, 0);
+        assert_eq!(status.total_oi, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_parse_perp_dex_status_name_fallback() {
+        // If "name" is missing from response, dex_name parameter is used.
+        let json = serde_json::json!({
+            "isActive": true,
+            "numAssets": 3,
+            "totalOi": "500.0"
+        });
+        let status = parse_perp_dex_status(&json, "FallbackName").unwrap();
+        assert_eq!(status.name, "FallbackName");
+    }
+
+    #[test]
+    fn test_parse_perp_dex_status_missing_is_active_errors() {
+        let json = serde_json::json!({
+            "name": "X",
+            "numAssets": 1,
+            "totalOi": "100.0"
+        });
+        let err = parse_perp_dex_status(&json, "X").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("isActive"),
+            "should mention missing field: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_parse_perp_dex_status_missing_num_assets_errors() {
+        let json = serde_json::json!({
+            "name": "X",
+            "isActive": true,
+            "totalOi": "100.0"
+        });
+        let err = parse_perp_dex_status(&json, "X").unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("numAssets"),
+            "should mention missing field: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_parse_perp_dex_status_missing_total_oi_errors() {
+        let json = serde_json::json!({
+            "name": "X",
+            "isActive": true,
+            "numAssets": 1
+        });
+        assert!(parse_perp_dex_status(&json, "X").is_err());
+    }
+
+    #[test]
+    fn test_parse_perp_dex_status_serde_roundtrip() {
+        let status = HlPerpDexStatus::new(
+            "MyDex".into(),
+            true,
+            10,
+            Decimal::from_str("999999.99").unwrap(),
+        );
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("isActive"));
+        assert!(json.contains("numAssets"));
+        assert!(json.contains("totalOi"));
+        let parsed: HlPerpDexStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, status);
+    }
+
+    #[test]
+    fn test_parse_perps_at_oi_cap_valid() {
+        let json = serde_json::json!(["BTC", "ETH", "SOL"]);
+        let coins = parse_perps_at_oi_cap(&json).unwrap();
+        assert_eq!(coins, vec!["BTC", "ETH", "SOL"]);
+    }
+
+    #[test]
+    fn test_parse_perps_at_oi_cap_empty() {
+        let json = serde_json::json!([]);
+        let coins = parse_perps_at_oi_cap(&json).unwrap();
+        assert!(coins.is_empty());
+    }
+
+    #[test]
+    fn test_parse_perps_at_oi_cap_not_array_errors() {
+        let json = serde_json::json!({"not": "array"});
+        assert!(parse_perps_at_oi_cap(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_perps_at_oi_cap_non_string_entry_errors() {
+        let json = serde_json::json!(["BTC", 42]);
+        assert!(parse_perps_at_oi_cap(&json).is_err());
+    }
+
+    #[tokio::test]
+    async fn mock_transport_perp_dex_status() {
+        let response = serde_json::json!({
+            "name": "HyperBTC",
+            "isActive": true,
+            "numAssets": 5,
+            "totalOi": "1000000.0"
+        });
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let status = market.perp_dex_status("HyperBTC").await.unwrap();
+        assert_eq!(status.name, "HyperBTC");
+        assert!(status.is_active);
+        assert_eq!(status.num_assets, 5);
+    }
+
+    #[tokio::test]
+    async fn mock_transport_perps_at_oi_cap() {
+        let response = serde_json::json!(["BTC", "ETH"]);
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let coins = market.perps_at_oi_cap().await.unwrap();
+        assert_eq!(coins, vec!["BTC", "ETH"]);
     }
 }

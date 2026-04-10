@@ -161,6 +161,33 @@ impl HlSpotBalance {
     }
 }
 
+/// Status of a builder-deployed perpetual DEX (HIP-3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlPerpDexStatus {
+    /// DEX name/identifier.
+    pub name: String,
+    /// Whether the DEX is active.
+    pub is_active: bool,
+    /// Number of listed assets.
+    pub num_assets: u32,
+    /// Total open interest in USD.
+    pub total_oi: Decimal,
+}
+
+impl HlPerpDexStatus {
+    /// Creates a new `HlPerpDexStatus`.
+    pub fn new(name: String, is_active: bool, num_assets: u32, total_oi: Decimal) -> Self {
+        Self {
+            name,
+            is_active,
+            num_assets,
+            total_oi,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,5 +365,45 @@ mod tests {
         let parsed: HlSpotBalance = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.coin, "PURR");
         assert_eq!(parsed.total, Decimal::from_str("500.0").unwrap());
+    }
+
+    #[test]
+    fn perp_dex_status_serde_roundtrip() {
+        let status = HlPerpDexStatus {
+            name: "HyperBTC".into(),
+            is_active: true,
+            num_assets: 5,
+            total_oi: Decimal::from_str("1000000.0").unwrap(),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let parsed: HlPerpDexStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "HyperBTC");
+        assert!(parsed.is_active);
+        assert_eq!(parsed.num_assets, 5);
+        assert_eq!(parsed.total_oi, Decimal::from_str("1000000.0").unwrap());
+    }
+
+    #[test]
+    fn perp_dex_status_camel_case_keys() {
+        let status = HlPerpDexStatus {
+            name: "X".into(),
+            is_active: false,
+            num_assets: 0,
+            total_oi: Decimal::ZERO,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("isActive"));
+        assert!(json.contains("numAssets"));
+        assert!(json.contains("totalOi"));
+    }
+
+    #[test]
+    fn perp_dex_status_camel_case_deserialize() {
+        let json = r#"{"name":"TestDex","isActive":true,"numAssets":3,"totalOi":"500000.0"}"#;
+        let parsed: HlPerpDexStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.name, "TestDex");
+        assert!(parsed.is_active);
+        assert_eq!(parsed.num_assets, 3);
+        assert_eq!(parsed.total_oi, Decimal::from_str("500000.0").unwrap());
     }
 }

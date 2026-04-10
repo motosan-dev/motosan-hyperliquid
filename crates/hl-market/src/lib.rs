@@ -7,3 +7,4 @@
 pub mod market_data;
 pub use market_data::parse_spot_meta;
 pub use market_data::MarketData;
+pub use market_data::{parse_perp_dex_status, parse_perps_at_oi_cap};
