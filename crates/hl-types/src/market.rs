@@ -92,6 +92,75 @@ impl HlFundingRate {
     }
 }
 
+/// Metadata for a spot token listed on Hyperliquid.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlSpotAssetInfo {
+    /// Token name (e.g. "PURR").
+    pub name: String,
+    /// Token index.
+    pub index: u32,
+    /// Size decimal places.
+    pub sz_decimals: u32,
+    /// Wei decimals for on-chain representation.
+    pub wei_decimals: u32,
+}
+
+impl HlSpotAssetInfo {
+    /// Creates a new `HlSpotAssetInfo`.
+    pub fn new(name: String, index: u32, sz_decimals: u32, wei_decimals: u32) -> Self {
+        Self {
+            name,
+            index,
+            sz_decimals,
+            wei_decimals,
+        }
+    }
+}
+
+/// Spot universe metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct HlSpotMeta {
+    /// All spot tokens.
+    pub tokens: Vec<HlSpotAssetInfo>,
+}
+
+impl HlSpotMeta {
+    /// Creates a new `HlSpotMeta`.
+    pub fn new(tokens: Vec<HlSpotAssetInfo>) -> Self {
+        Self { tokens }
+    }
+}
+
+/// A spot token balance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlSpotBalance {
+    /// Token name.
+    pub coin: String,
+    /// Token index or identifier.
+    pub token: u32,
+    /// Hold amount (available balance).
+    pub hold: Decimal,
+    /// Total amount.
+    pub total: Decimal,
+}
+
+impl HlSpotBalance {
+    /// Creates a new `HlSpotBalance`.
+    pub fn new(coin: String, token: u32, hold: Decimal, total: Decimal) -> Self {
+        Self {
+            coin,
+            token,
+            hold,
+            total,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +274,69 @@ mod tests {
         let json = serde_json::to_string(&fr).unwrap();
         assert!(json.contains("fundingRate"));
         assert!(json.contains("nextFundingTime"));
+    }
+
+    #[test]
+    fn spot_asset_info_serde_roundtrip() {
+        let info = HlSpotAssetInfo {
+            name: "PURR".into(),
+            index: 1,
+            sz_decimals: 0,
+            wei_decimals: 18,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let parsed: HlSpotAssetInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "PURR");
+        assert_eq!(parsed.index, 1);
+        assert_eq!(parsed.sz_decimals, 0);
+        assert_eq!(parsed.wei_decimals, 18);
+    }
+
+    #[test]
+    fn spot_asset_info_camel_case_keys() {
+        let info = HlSpotAssetInfo {
+            name: "X".into(),
+            index: 0,
+            sz_decimals: 0,
+            wei_decimals: 0,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("szDecimals"));
+        assert!(json.contains("weiDecimals"));
+    }
+
+    #[test]
+    fn spot_meta_serde_roundtrip() {
+        let meta = HlSpotMeta {
+            tokens: vec![HlSpotAssetInfo::new("PURR".into(), 1, 0, 18)],
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        let parsed: HlSpotMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.tokens.len(), 1);
+        assert_eq!(parsed.tokens[0].name, "PURR");
+    }
+
+    #[test]
+    fn spot_balance_serde_roundtrip() {
+        let bal = HlSpotBalance {
+            coin: "PURR".into(),
+            token: 1,
+            hold: Decimal::ZERO,
+            total: Decimal::from_str("1000.0").unwrap(),
+        };
+        let json = serde_json::to_string(&bal).unwrap();
+        let parsed: HlSpotBalance = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.coin, "PURR");
+        assert_eq!(parsed.token, 1);
+        assert_eq!(parsed.hold, Decimal::ZERO);
+        assert_eq!(parsed.total, Decimal::from_str("1000.0").unwrap());
+    }
+
+    #[test]
+    fn spot_balance_camel_case_deserialize() {
+        let json = r#"{"coin":"PURR","token":1,"hold":"0","total":"500.0"}"#;
+        let parsed: HlSpotBalance = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.coin, "PURR");
+        assert_eq!(parsed.total, Decimal::from_str("500.0").unwrap());
     }
 }

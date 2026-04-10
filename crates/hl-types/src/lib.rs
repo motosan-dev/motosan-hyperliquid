@@ -22,7 +22,9 @@ pub use account::{
 };
 pub use candle::HlCandle;
 pub use error::HlError;
-pub use market::{HlAssetInfo, HlFundingRate, HlOrderbook};
+pub use market::{
+    HlAssetInfo, HlFundingRate, HlOrderbook, HlSpotAssetInfo, HlSpotBalance, HlSpotMeta,
+};
 pub use order::{
     CancelByCloidRequest, CancelRequest, LimitOrderType, ModifyRequest, OrderStatus, OrderTypeWire,
     OrderWire, OrderWireBuilder, PositionSide, Side, Tif, Tpsl, TriggerOrderType,
