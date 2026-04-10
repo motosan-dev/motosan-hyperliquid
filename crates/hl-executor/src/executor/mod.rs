@@ -172,6 +172,27 @@ impl OrderExecutor {
             })
     }
 
+    /// Check the API response status and parse into an [`HlActionResponse`].
+    ///
+    /// User-signed actions (EIP-712) bypass `send_signed_action` and post
+    /// directly via `client.post_action`, so they need their own status check.
+    pub(crate) fn check_and_parse_response(
+        result: serde_json::Value,
+        context: &str,
+    ) -> Result<HlActionResponse, HlError> {
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        if api_status != "ok" {
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected {}: {}", context, result),
+            });
+        }
+        serde_json::from_value(result)
+            .map_err(|e| HlError::Parse(format!("{} response: {e}", context)))
+    }
+
     /// Borrow the underlying HTTP transport.
     pub fn client(&self) -> &dyn HttpTransport {
         self.client.as_ref()
