@@ -13,7 +13,6 @@ description = "Hyperliquid account state — positions, fills, vaults, agent app
 
 [features]
 default = []
-live-test = ["hl-client/live-test"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

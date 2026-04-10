@@ -16,6 +16,93 @@ const TESTNET_API_URL: &str = "https://api.hyperliquid-testnet.xyz";
 /// Default Retry-After fallback when the header is missing on a 429 response.
 const DEFAULT_RATE_LIMIT_WAIT_MS: u64 = 1_000;
 
+/// Builder for constructing a [`HyperliquidClient`] with custom configuration.
+///
+/// # Example
+/// ```no_run
+/// use hl_client::{HyperliquidClient, RetryConfig};
+///
+/// let client = HyperliquidClient::builder()
+///     .mainnet()
+///     .retry(RetryConfig { max_retries: 5, ..Default::default() })
+///     .build()?;
+/// # Ok::<(), hl_types::HlError>(())
+/// ```
+pub struct ClientBuilder {
+    is_mainnet: Option<bool>,
+    retry_config: Option<RetryConfig>,
+    timeout_config: Option<TimeoutConfig>,
+    rate_limit_config: Option<RateLimitConfig>,
+}
+
+impl ClientBuilder {
+    /// Create a new builder with all fields unset (defaults applied at build time).
+    pub fn new() -> Self {
+        Self {
+            is_mainnet: None,
+            retry_config: None,
+            timeout_config: None,
+            rate_limit_config: None,
+        }
+    }
+
+    /// Target mainnet (this is the default if no network is specified).
+    pub fn mainnet(mut self) -> Self {
+        self.is_mainnet = Some(true);
+        self
+    }
+
+    /// Target testnet.
+    pub fn testnet(mut self) -> Self {
+        self.is_mainnet = Some(false);
+        self
+    }
+
+    /// Set the network explicitly (`true` = mainnet, `false` = testnet).
+    pub fn network(mut self, is_mainnet: bool) -> Self {
+        self.is_mainnet = Some(is_mainnet);
+        self
+    }
+
+    /// Set a custom retry configuration.
+    pub fn retry(mut self, config: RetryConfig) -> Self {
+        self.retry_config = Some(config);
+        self
+    }
+
+    /// Set a custom timeout configuration.
+    pub fn timeout(mut self, config: TimeoutConfig) -> Self {
+        self.timeout_config = Some(config);
+        self
+    }
+
+    /// Set a custom rate-limit configuration.
+    pub fn rate_limit(mut self, config: RateLimitConfig) -> Self {
+        self.rate_limit_config = Some(config);
+        self
+    }
+
+    /// Build the [`HyperliquidClient`].
+    ///
+    /// Defaults to mainnet if no network was specified.
+    /// Uses default configs for any config not explicitly set.
+    pub fn build(self) -> Result<HyperliquidClient, HlError> {
+        let is_mainnet = self.is_mainnet.unwrap_or(true);
+        HyperliquidClient::with_full_config(
+            is_mainnet,
+            self.retry_config.unwrap_or_default(),
+            self.timeout_config.unwrap_or_default(),
+            self.rate_limit_config.unwrap_or_default(),
+        )
+    }
+}
+
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Hyperliquid REST client.
 ///
 /// Handles sending signed actions to the exchange API and querying
@@ -31,6 +118,11 @@ pub struct HyperliquidClient {
 }
 
 impl HyperliquidClient {
+    /// Create a [`ClientBuilder`] for step-by-step configuration.
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
+    }
+
     /// Create a new client for mainnet or testnet with default retry and timeout config.
     pub fn new(is_mainnet: bool) -> Result<Self, HlError> {
         Self::with_config(is_mainnet, RetryConfig::default(), TimeoutConfig::default())
@@ -434,6 +526,44 @@ mod tests {
     fn shutdown_token_is_not_cancelled_by_default() {
         let client = HyperliquidClient::testnet().unwrap();
         assert!(!client.shutdown_token().is_cancelled());
+    }
+
+    #[test]
+    fn builder_defaults_to_mainnet() {
+        let client = HyperliquidClient::builder().build().unwrap();
+        assert!(client.is_mainnet());
+    }
+
+    #[test]
+    fn builder_testnet() {
+        let client = HyperliquidClient::builder().testnet().build().unwrap();
+        assert!(!client.is_mainnet());
+    }
+
+    #[test]
+    fn builder_with_custom_retry() {
+        let client = HyperliquidClient::builder()
+            .mainnet()
+            .retry(RetryConfig {
+                max_retries: 10,
+                ..Default::default()
+            })
+            .build()
+            .unwrap();
+        assert!(client.is_mainnet());
+    }
+
+    #[test]
+    fn builder_network_method() {
+        let client = HyperliquidClient::builder().network(false).build().unwrap();
+        assert!(!client.is_mainnet());
+    }
+
+    #[test]
+    fn builder_default_impl() {
+        let builder = ClientBuilder::default();
+        let client = builder.build().unwrap();
+        assert!(client.is_mainnet());
     }
 
     #[test]

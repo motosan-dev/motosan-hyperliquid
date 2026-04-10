@@ -17,7 +17,7 @@ pub mod transport;
 #[cfg(feature = "ws")]
 pub mod ws;
 
-pub use client::HyperliquidClient;
+pub use client::{ClientBuilder, HyperliquidClient};
 pub use rate_limit::RateLimitConfig;
 pub use retry::{RetryConfig, TimeoutConfig};
 pub use transport::HttpTransport;

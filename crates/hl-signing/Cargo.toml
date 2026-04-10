@@ -14,7 +14,6 @@ description = "Hyperliquid EIP-712 signing — Signer trait, PrivateKeySigner, a
 [features]
 default = ["k256-signer"]
 k256-signer = ["dep:k256", "dep:zeroize"]
-live-test = []
 
 [dependencies]
 hl-types.workspace = true

@@ -180,6 +180,25 @@ impl OrderExecutor {
     }
 
     /// Modify EVM user configuration.
+    ///
+    /// The `modifications` parameter is a JSON object describing the changes
+    /// to apply. Common fields include:
+    ///
+    /// - `"usingBigBlocks"` (`bool`) — opt into big-block mode for higher throughput
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use serde_json::json;
+    /// # async fn example(executor: &hl_executor::OrderExecutor) -> Result<(), hl_types::HlError> {
+    /// // Enable big-block mode
+    /// executor.evm_user_modify(json!({"usingBigBlocks": true}), None).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Refer to the [Hyperliquid API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs)
+    /// for the full list of supported modification fields.
     #[tracing::instrument(skip(self))]
     pub async fn evm_user_modify(
         &self,
