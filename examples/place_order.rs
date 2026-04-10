@@ -20,7 +20,7 @@
 use hl_client::HyperliquidClient;
 use hl_executor::OrderExecutor;
 use hl_signing::PrivateKeySigner;
-use hl_types::{LimitOrderType, OrderTypeWire, OrderWire};
+use hl_types::{LimitOrderType, OrderStatus, OrderTypeWire, OrderWire, Tif};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         reduce_only: false,
         order_type: OrderTypeWire {
             limit: Some(LimitOrderType {
-                tif: "Gtc".to_string(),
+                tif: Tif::Gtc,
             }),
             trigger: None,
         },
@@ -87,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ── Cancel (cleanup) ─────────────────────────────────────
-    if response.status == "open" {
+    if response.status == OrderStatus::Open {
         println!("\nCancelling resting order...");
         let oid: u64 = response.order_id.parse().unwrap_or(0);
         if oid > 0 {
