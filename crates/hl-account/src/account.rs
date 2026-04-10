@@ -116,6 +116,19 @@ impl Account {
             .collect()
     }
 
+    /// Fetch clearinghouse state across all DEXes for an address (HIP-3).
+    ///
+    /// Returns the raw JSON response since the multi-DEX structure is complex
+    /// and varies. Callers can parse the fields they need.
+    #[tracing::instrument(skip(self))]
+    pub async fn all_dexs_state(&self, address: &str) -> Result<serde_json::Value, HlError> {
+        let payload = serde_json::json!({
+            "type": "allDexsClearinghouseState",
+            "user": address,
+        });
+        self.client.post_info(payload).await
+    }
+
     /// Fetch open orders for an address.
     #[tracing::instrument(skip(self))]
     pub async fn open_orders(&self, address: &str) -> Result<Vec<serde_json::Value>, HlError> {
