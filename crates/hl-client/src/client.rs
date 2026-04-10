@@ -3,6 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use hl_types::{HlError, Signature};
 
+use crate::rate_limit::{RateLimitConfig, RateLimiter};
 use crate::retry::{RetryConfig, TimeoutConfig};
 use crate::transport::HttpTransport;
 
@@ -24,6 +25,7 @@ pub struct HyperliquidClient {
     base_url: String,
     is_mainnet: bool,
     retry_config: RetryConfig,
+    rate_limiter: RateLimiter,
 }
 
 impl HyperliquidClient {
@@ -48,25 +50,49 @@ impl HyperliquidClient {
     }
 
     /// Create a new client with custom retry and timeout configurations.
+    ///
+    /// Uses the default [`RateLimitConfig`] (10 rps, 5 concurrent).
     pub fn with_config(
         is_mainnet: bool,
         retry_config: RetryConfig,
         timeout_config: TimeoutConfig,
     ) -> Result<Self, HlError> {
+        Self::with_full_config(
+            is_mainnet,
+            retry_config,
+            timeout_config,
+            RateLimitConfig::default(),
+        )
+    }
+
+    /// Create a new client with custom retry, timeout, and rate-limit configurations.
+    ///
+    /// The HTTP client is configured with TCP keep-alive and connection-pool idle
+    /// timeout to reduce connection churn under sustained load.
+    pub fn with_full_config(
+        is_mainnet: bool,
+        retry_config: RetryConfig,
+        timeout_config: TimeoutConfig,
+        rate_limit_config: RateLimitConfig,
+    ) -> Result<Self, HlError> {
         let base_url = Self::base_url_for(is_mainnet).to_string();
         let http = reqwest::Client::builder()
             .timeout(timeout_config.request_timeout)
             .connect_timeout(timeout_config.connect_timeout)
+            .tcp_keepalive(Duration::from_secs(30))
+            .pool_idle_timeout(Duration::from_secs(90))
             .build()
             .map_err(|e| HlError::Http {
                 message: format!("Failed to build HTTP client: {e}"),
                 source: Some(Box::new(e)),
             })?;
+        let rate_limiter = RateLimiter::from_config(&rate_limit_config);
         Ok(Self {
             http,
             base_url,
             is_mainnet,
             retry_config,
+            rate_limiter,
         })
     }
 
@@ -97,7 +123,7 @@ impl HyperliquidClient {
     ///
     /// The payload includes the action, signature, nonce, and optional vault address.
     /// Retries on transient failures (network errors, 5xx, 429) with exponential backoff.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self, action, signature), fields(endpoint = "exchange"))]
     pub async fn post_action(
         &self,
         action: serde_json::Value,
@@ -133,7 +159,7 @@ impl HyperliquidClient {
     ///
     /// Used for read-only queries like clearinghouseState, meta, l2Book, etc.
     /// Retries on transient failures (network errors, 5xx, 429) with exponential backoff.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self, request), fields(endpoint = "info"))]
     pub async fn post_info(
         &self,
         request: serde_json::Value,
@@ -157,6 +183,19 @@ impl HyperliquidClient {
         url: &str,
         payload: &serde_json::Value,
     ) -> Result<serde_json::Value, HlError> {
+        // Acquire concurrency permit (held for the duration of the request).
+        let _permit = match &self.rate_limiter.semaphore {
+            Some(sem) => Some(sem.acquire().await.map_err(|_| {
+                HlError::http("rate limiter semaphore closed")
+            })?),
+            None => None,
+        };
+
+        // Acquire a rate-limit token before entering the retry loop.
+        if let Some(bucket) = &self.rate_limiter.bucket {
+            bucket.acquire().await;
+        }
+
         let mut last_error: Option<HlError> = None;
 
         for attempt in 0..=self.retry_config.max_retries {
