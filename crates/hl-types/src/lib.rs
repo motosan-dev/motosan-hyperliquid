@@ -18,7 +18,8 @@ pub mod signature;
 pub mod util;
 
 pub use account::{
-    HlAccountState, HlExtraAgent, HlFill, HlPosition, HlVaultDetails, HlVaultSummary,
+    HlAccountState, HlExtraAgent, HlFill, HlPosition, HlRateLimitStatus, HlUserFees,
+    HlVaultDetails, HlVaultSummary,
 };
 pub use candle::HlCandle;
 pub use error::HlError;
