@@ -62,18 +62,7 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected approveAgent: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("approve_agent response: {e}")))
+        Self::check_and_parse_response(result, "approveAgent")
     }
 
     /// Schedule cancellation of all open orders at a future time.
@@ -165,18 +154,7 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected approveBuilderFee: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("approve_builder_fee response: {e}")))
+        Self::check_and_parse_response(result, "approveBuilderFee")
     }
 
     /// Modify EVM user configuration.
