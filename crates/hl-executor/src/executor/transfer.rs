@@ -33,11 +33,7 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() {
-            "Mainnet"
-        } else {
-            "Testnet"
-        };
+        let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "usdSend",
@@ -93,11 +89,7 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() {
-            "Mainnet"
-        } else {
-            "Testnet"
-        };
+        let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "withdraw3",
@@ -157,11 +149,7 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() {
-            "Mainnet"
-        } else {
-            "Testnet"
-        };
+        let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "spotSend",

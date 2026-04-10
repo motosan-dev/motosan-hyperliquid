@@ -106,6 +106,15 @@ impl OrderExecutor {
         Self::with_meta_cache(Arc::new(client), signer, address, meta_cache)
     }
 
+    /// Return the Hyperliquid chain name for EIP-712 signing.
+    pub(crate) fn chain_name(&self) -> &'static str {
+        if self.client.is_mainnet() {
+            "Mainnet"
+        } else {
+            "Testnet"
+        }
+    }
+
     /// Generate a monotonically increasing nonce based on the current time in
     /// milliseconds since the UNIX epoch.
     pub(crate) fn next_nonce(&self) -> u64 {
