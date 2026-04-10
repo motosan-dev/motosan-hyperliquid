@@ -5,8 +5,9 @@ use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    HlAccountState, HlError, HlExtraAgent, HlFill, HlPosition, HlRateLimitStatus, HlSpotBalance,
-    HlUserFees, HlVaultDetails, HlVaultSummary,
+    HlAccountState, HlBorrowLendState, HlError, HlExtraAgent, HlFill, HlPosition,
+    HlRateLimitStatus, HlSpotBalance, HlStakingDelegation, HlUserFees, HlVaultDetails,
+    HlVaultSummary,
 };
 
 /// Typed interface for Hyperliquid account state queries.
@@ -197,6 +198,28 @@ impl Account {
         resp.as_array()
             .cloned()
             .ok_or_else(|| HlError::Parse("expected array for historicalOrders".into()))
+    }
+
+    /// Fetch staking delegations for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn staking_delegations(
+        &self,
+        address: &str,
+    ) -> Result<Vec<HlStakingDelegation>, HlError> {
+        let payload = serde_json::json!({ "type": "stakingDelegations", "user": address });
+        let resp = self.client.post_info(payload).await?;
+        parse_staking_delegations(&resp)
+    }
+
+    /// Fetch borrow/lend state for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn borrow_lend_state(
+        &self,
+        address: &str,
+    ) -> Result<Vec<HlBorrowLendState>, HlError> {
+        let payload = serde_json::json!({ "type": "spotClearinghouseState", "user": address });
+        let resp = self.client.post_info(payload).await?;
+        parse_borrow_lend_state(&resp)
     }
 
     /// Fetch fee tier and maker/taker rates for an address.
@@ -425,6 +448,83 @@ pub fn parse_spot_state(resp: &serde_json::Value) -> Result<Vec<HlSpotBalance>, 
     }
 
     Ok(balances)
+}
+
+/// Parse a `stakingDelegations` JSON response into a [`Vec<HlStakingDelegation>`].
+///
+/// Hyperliquid returns: `[{"validator": "0x...", "amount": "1000.0", "rewards": "5.0"}, ...]`
+pub fn parse_staking_delegations(
+    resp: &serde_json::Value,
+) -> Result<Vec<HlStakingDelegation>, HlError> {
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for stakingDelegations".into()))?;
+
+    let mut delegations = Vec::with_capacity(arr.len());
+    for item in arr {
+        let validator = match item.get("validator").and_then(|v| v.as_str()) {
+            Some(v) if !v.is_empty() => v.to_string(),
+            _ => {
+                tracing::warn!("Skipping delegation with missing or empty validator");
+                continue;
+            }
+        };
+        let amount = parse_str_decimal(
+            item.get("amount")
+                .ok_or_else(|| HlError::Parse("missing 'amount' in delegation".into()))?,
+            "amount",
+        )?;
+        let rewards = parse_str_decimal(
+            item.get("rewards")
+                .ok_or_else(|| HlError::Parse("missing 'rewards' in delegation".into()))?,
+            "rewards",
+        )?;
+        delegations.push(HlStakingDelegation::new(validator, amount, rewards));
+    }
+
+    Ok(delegations)
+}
+
+/// Parse borrow/lend state from a `spotClearinghouseState` JSON response.
+///
+/// Extracts entries from the `balances` array that have `supply`, `borrow`, and
+/// `apy` fields. Entries without these fields are skipped (they are plain spot
+/// balances, not borrow/lend positions).
+pub fn parse_borrow_lend_state(
+    resp: &serde_json::Value,
+) -> Result<Vec<HlBorrowLendState>, HlError> {
+    let balances_arr = resp
+        .get("balances")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            HlError::Parse("missing 'balances' in spotClearinghouseState for borrow/lend".into())
+        })?;
+
+    let mut states = Vec::new();
+    for item in balances_arr {
+        // Only process entries that have borrow/lend fields.
+        let (supply_val, borrow_val, apy_val) =
+            match (item.get("supply"), item.get("borrow"), item.get("apy")) {
+                (Some(s), Some(b), Some(a)) => (s, b, a),
+                _ => continue, // Not a borrow/lend entry, skip.
+            };
+
+        let coin = match item.get("coin").and_then(|v| v.as_str()) {
+            Some(c) if !c.is_empty() => c.to_string(),
+            _ => {
+                tracing::warn!("Skipping borrow/lend entry with missing or empty coin");
+                continue;
+            }
+        };
+
+        let supply = parse_str_decimal(supply_val, "supply")?;
+        let borrow = parse_str_decimal(borrow_val, "borrow")?;
+        let apy = parse_str_decimal(apy_val, "apy")?;
+
+        states.push(HlBorrowLendState::new(coin, supply, borrow, apy));
+    }
+
+    Ok(states)
 }
 
 /// Parse a `userFees` JSON response into an [`HlUserFees`].
@@ -756,6 +856,136 @@ mod tests {
             ]
         });
         assert!(parse_spot_state(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_staking_delegations_basic() {
+        let resp = serde_json::json!([
+            { "validator": "0xval1", "amount": "1000.0", "rewards": "5.0" },
+            { "validator": "0xval2", "amount": "2000.0", "rewards": "10.5" }
+        ]);
+        let delegations = parse_staking_delegations(&resp).unwrap();
+        assert_eq!(delegations.len(), 2);
+        assert_eq!(delegations[0].validator, "0xval1");
+        assert_eq!(delegations[0].amount, Decimal::from_str("1000.0").unwrap());
+        assert_eq!(delegations[0].rewards, Decimal::from_str("5.0").unwrap());
+        assert_eq!(delegations[1].validator, "0xval2");
+        assert_eq!(delegations[1].amount, Decimal::from_str("2000.0").unwrap());
+        assert_eq!(delegations[1].rewards, Decimal::from_str("10.5").unwrap());
+    }
+
+    #[test]
+    fn parse_staking_delegations_empty() {
+        let resp = serde_json::json!([]);
+        let delegations = parse_staking_delegations(&resp).unwrap();
+        assert!(delegations.is_empty());
+    }
+
+    #[test]
+    fn parse_staking_delegations_expects_array() {
+        let resp = serde_json::json!({"not": "an array"});
+        assert!(parse_staking_delegations(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_staking_delegations_skips_empty_validator() {
+        let resp = serde_json::json!([
+            { "validator": "", "amount": "100.0", "rewards": "1.0" },
+            { "validator": "0xval1", "amount": "200.0", "rewards": "2.0" }
+        ]);
+        let delegations = parse_staking_delegations(&resp).unwrap();
+        assert_eq!(delegations.len(), 1);
+        assert_eq!(delegations[0].validator, "0xval1");
+    }
+
+    #[test]
+    fn parse_staking_delegations_missing_amount_errors() {
+        let resp = serde_json::json!([
+            { "validator": "0xval1", "rewards": "1.0" }
+        ]);
+        assert!(parse_staking_delegations(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_staking_delegations_missing_rewards_errors() {
+        let resp = serde_json::json!([
+            { "validator": "0xval1", "amount": "100.0" }
+        ]);
+        assert!(parse_staking_delegations(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_borrow_lend_state_basic() {
+        let resp = serde_json::json!({
+            "balances": [
+                {
+                    "coin": "USDC",
+                    "supply": "10000.0",
+                    "borrow": "0.0",
+                    "apy": "0.05"
+                },
+                {
+                    "coin": "ETH",
+                    "supply": "0.0",
+                    "borrow": "5.0",
+                    "apy": "0.08"
+                }
+            ]
+        });
+        let states = parse_borrow_lend_state(&resp).unwrap();
+        assert_eq!(states.len(), 2);
+        assert_eq!(states[0].coin, "USDC");
+        assert_eq!(states[0].supply, Decimal::from_str("10000.0").unwrap());
+        assert_eq!(states[0].borrow, Decimal::ZERO);
+        assert_eq!(states[0].apy, Decimal::from_str("0.05").unwrap());
+        assert_eq!(states[1].coin, "ETH");
+        assert_eq!(states[1].supply, Decimal::ZERO);
+        assert_eq!(states[1].borrow, Decimal::from_str("5.0").unwrap());
+        assert_eq!(states[1].apy, Decimal::from_str("0.08").unwrap());
+    }
+
+    #[test]
+    fn parse_borrow_lend_state_skips_plain_balances() {
+        let resp = serde_json::json!({
+            "balances": [
+                { "coin": "PURR", "token": 1, "hold": "0", "total": "1000.0" },
+                {
+                    "coin": "USDC",
+                    "supply": "500.0",
+                    "borrow": "0.0",
+                    "apy": "0.03"
+                }
+            ]
+        });
+        let states = parse_borrow_lend_state(&resp).unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].coin, "USDC");
+    }
+
+    #[test]
+    fn parse_borrow_lend_state_empty_balances() {
+        let resp = serde_json::json!({ "balances": [] });
+        let states = parse_borrow_lend_state(&resp).unwrap();
+        assert!(states.is_empty());
+    }
+
+    #[test]
+    fn parse_borrow_lend_state_missing_balances_errors() {
+        let resp = serde_json::json!({});
+        assert!(parse_borrow_lend_state(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_borrow_lend_state_skips_empty_coin() {
+        let resp = serde_json::json!({
+            "balances": [
+                { "coin": "", "supply": "100.0", "borrow": "0.0", "apy": "0.01" },
+                { "coin": "BTC", "supply": "1.0", "borrow": "0.0", "apy": "0.02" }
+            ]
+        });
+        let states = parse_borrow_lend_state(&resp).unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].coin, "BTC");
     }
 
     #[test]
