@@ -50,7 +50,7 @@ pub fn compute_action_hash(
     nonce: u64,
 ) -> Result<[u8; 32], HlError> {
     motosan_wallet_core::compute_action_hash(action, nonce, vault_address)
-        .map_err(|e| HlError::Serialization(e.to_string()))
+        .map_err(|e| HlError::serialization(e.to_string()))
 }
 
 // ============================================================
@@ -73,7 +73,7 @@ pub fn sign_l1_action(
     let adapter = SingleAddressSigner::new(signer, address.to_string());
     let hl_sig =
         motosan_wallet_core::sign_l1_action(&adapter, action, nonce, is_mainnet, vault_address)
-            .map_err(|e| HlError::Signing(e.to_string()))?;
+            .map_err(|e| HlError::signing(e.to_string()))?;
     Ok(hl_signature_to_signature(&hl_sig))
 }
 
@@ -109,7 +109,7 @@ pub fn sign_user_signed_action(
         primary_type,
         is_mainnet,
     )
-    .map_err(|e| HlError::Signing(e.to_string()))?;
+    .map_err(|e| HlError::signing(e.to_string()))?;
 
     Ok(hl_signature_to_signature(&hl_sig))
 }
@@ -120,11 +120,7 @@ pub fn sign_user_signed_action(
 
 /// Convert motosan-wallet-core's HlSignature to our Signature type.
 fn hl_signature_to_signature(hl: &motosan_wallet_core::HlSignature) -> Signature {
-    Signature {
-        r: hl.r.clone(),
-        s: hl.s.clone(),
-        v: hl.v,
-    }
+    Signature::new(hl.r.clone(), hl.s.clone(), hl.v)
 }
 
 // ============================================================
@@ -169,7 +165,7 @@ mod tests {
             let (signature, recovery_id): (k256::ecdsa::Signature, RecoveryId) = self
                 .key
                 .sign_prehash(hash)
-                .map_err(|e| HlError::Signing(format!("k256 signing error: {}", e)))?;
+                .map_err(|e| HlError::signing(format!("k256 signing error: {}", e)))?;
             let mut result = [0u8; 65];
             result[..64].copy_from_slice(&signature.to_bytes());
             result[64] = recovery_id.to_byte();

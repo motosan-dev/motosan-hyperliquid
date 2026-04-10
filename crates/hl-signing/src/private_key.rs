@@ -18,12 +18,18 @@ impl PrivateKeySigner {
     pub fn from_hex(key_hex: &str) -> Result<Self, HlError> {
         let stripped = key_hex.strip_prefix("0x").unwrap_or(key_hex);
         let bytes =
-            hex::decode(stripped).map_err(|e| HlError::Signing(format!("invalid hex: {e}")))?;
+            hex::decode(stripped).map_err(|e| HlError::Signing {
+                message: format!("invalid hex: {e}"),
+                source: Some(Box::new(e)),
+            })?;
         if bytes.len() != 32 {
-            return Err(HlError::Signing("private key must be 32 bytes".to_string()));
+            return Err(HlError::signing("private key must be 32 bytes"));
         }
         let key = SigningKey::from_bytes(bytes.as_slice().into())
-            .map_err(|e| HlError::Signing(format!("invalid key: {e}")))?;
+            .map_err(|e| HlError::Signing {
+                message: format!("invalid key: {e}"),
+                source: Some(Box::new(e)),
+            })?;
         let vk = *key.verifying_key();
         let address = Self::verifying_key_to_address(&vk);
         Ok(Self { key, address })
@@ -46,7 +52,7 @@ impl Signer for PrivateKeySigner {
         let (sig, recovery_id) = self
             .key
             .sign_prehash(hash)
-            .map_err(|e| HlError::Signing(e.to_string()))?;
+            .map_err(|e| HlError::signing(e.to_string()))?;
         let mut result = [0u8; 65];
         result[..64].copy_from_slice(&sig.to_bytes());
         result[64] = recovery_id.to_byte();

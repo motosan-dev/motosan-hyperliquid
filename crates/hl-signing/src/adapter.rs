@@ -79,7 +79,7 @@ mod tests {
 
     impl Signer for FailingSigner {
         fn sign_hash(&self, _address: &str, _hash: &[u8; 32]) -> Result<[u8; 65], HlError> {
-            Err(HlError::Signing("simulated key failure".to_string()))
+            Err(HlError::signing("simulated key failure"))
         }
     }
 
@@ -209,7 +209,7 @@ mod tests {
                 let (signature, recovery_id): (k256::ecdsa::Signature, RecoveryId) = self
                     .key
                     .sign_prehash(hash)
-                    .map_err(|e| HlError::Signing(e.to_string()))?;
+                    .map_err(|e| HlError::signing(e.to_string()))?;
                 let mut result = [0u8; 65];
                 result[..64].copy_from_slice(&signature.to_bytes());
                 result[64] = recovery_id.to_byte();

@@ -58,7 +58,10 @@ impl HyperliquidClient {
             .timeout(timeout_config.request_timeout)
             .connect_timeout(timeout_config.connect_timeout)
             .build()
-            .map_err(|e| HlError::Http(format!("Failed to build HTTP client: {e}")))?;
+            .map_err(|e| HlError::Http {
+                message: format!("Failed to build HTTP client: {e}"),
+                source: Some(Box::new(e)),
+            })?;
         Ok(Self {
             http,
             base_url,
@@ -114,7 +117,7 @@ impl HyperliquidClient {
 
         if let Some(vault) = vault_address {
             let obj = payload.as_object_mut().ok_or_else(|| {
-                HlError::Serialization("payload is not a JSON object".to_string())
+                HlError::serialization("payload is not a JSON object")
             })?;
             obj.insert(
                 "vaultAddress".to_string(),
@@ -187,7 +190,7 @@ impl HyperliquidClient {
 
         // Should not reach here, but return last error if it does.
         Err(last_error
-            .unwrap_or_else(|| HlError::Http("Retry loop exhausted without error".into())))
+            .unwrap_or_else(|| HlError::http("Retry loop exhausted without error")))
     }
 
     /// Internal: perform a single POST request without retry.
@@ -204,9 +207,15 @@ impl HyperliquidClient {
             .await
             .map_err(|e| {
                 if e.is_timeout() {
-                    HlError::Timeout(e.to_string())
+                    HlError::Timeout {
+                        message: e.to_string(),
+                        source: Some(Box::new(e)),
+                    }
                 } else {
-                    HlError::Http(e.to_string())
+                    HlError::Http {
+                        message: e.to_string(),
+                        source: Some(Box::new(e)),
+                    }
                 }
             })?;
 
@@ -236,7 +245,10 @@ impl HyperliquidClient {
         let body: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| HlError::Http(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| HlError::Serialization {
+                message: format!("Failed to parse response: {}", e),
+                source: Some(Box::new(e)),
+            })?;
 
         if !status.is_success() {
             return Err(HlError::Api {

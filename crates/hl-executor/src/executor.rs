@@ -231,7 +231,11 @@ impl OrderExecutor {
                     }
                 });
             }
-            _ => unreachable!("unknown OrderTypeWire variant"),
+            _ => {
+                return Err(HlError::serialization(
+                    "unknown OrderTypeWire variant",
+                ));
+            }
         }
 
         // Set cloid if present
@@ -288,17 +292,13 @@ impl OrderExecutor {
             OrderStatus::Open
         };
 
-        Ok(OrderResponse {
+        Ok(OrderResponse::new(
             order_id,
-            filled_price: if fill_size > Decimal::ZERO {
-                Some(fill_price)
-            } else {
-                None
-            },
-            filled_size: fill_size,
-            requested_size: fallback_size,
+            if fill_size > Decimal::ZERO { Some(fill_price) } else { None },
+            fill_size,
+            fallback_size,
             status,
-        })
+        ))
     }
 
     /// Cancel an order by asset index and exchange order ID.
@@ -422,17 +422,13 @@ impl OrderExecutor {
             }
         };
 
-        Ok(OrderResponse {
+        Ok(OrderResponse::new(
             order_id,
-            filled_price: if fill_size > Decimal::ZERO {
-                Some(fill_price)
-            } else {
-                None
-            },
-            filled_size: fill_size,
-            requested_size: size,
+            if fill_size > Decimal::ZERO { Some(fill_price) } else { None },
+            fill_size,
+            size,
             status,
-        })
+        ))
     }
 
     /// Transfer USDC into a vault.

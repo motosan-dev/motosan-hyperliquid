@@ -113,7 +113,10 @@ impl HyperliquidWs {
     pub async fn connect(&mut self) -> Result<(), HlError> {
         let (ws_stream, _) = tokio_tungstenite::connect_async(&self.url)
             .await
-            .map_err(|e| HlError::WebSocket(format!("WebSocket connection failed: {e}")))?;
+            .map_err(|e| HlError::WebSocket {
+                message: format!("WebSocket connection failed: {e}"),
+                source: Some(Box::new(e)),
+            })?;
 
         tracing::info!(url = %self.url, "WebSocket connected");
         self.stream = Some(ws_stream);
@@ -254,13 +257,16 @@ impl HyperliquidWs {
         let stream = self
             .stream
             .as_mut()
-            .ok_or_else(|| HlError::WebSocket("WebSocket not connected".to_string()))?;
+            .ok_or_else(|| HlError::websocket("WebSocket not connected"))?;
 
         let text = msg.to_string();
         stream
             .send(tokio_tungstenite::tungstenite::Message::Text(text))
             .await
-            .map_err(|e| HlError::WebSocket(format!("WebSocket send failed: {e}")))
+            .map_err(|e| HlError::WebSocket {
+                message: format!("WebSocket send failed: {e}"),
+                source: Some(Box::new(e)),
+            })
     }
 
     /// Reconnect with exponential backoff and jitter.
