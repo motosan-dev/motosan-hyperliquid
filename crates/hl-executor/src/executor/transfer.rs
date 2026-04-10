@@ -143,6 +143,72 @@ impl OrderExecutor {
             .map_err(|e| HlError::Parse(format!("withdraw response: {e}")))
     }
 
+    /// Send spot tokens to another address on the Hyperliquid L1.
+    ///
+    /// The `token` parameter uses the format `"<name>:<id>"` (e.g. `"PURR:0x..."`)
+    /// as required by the Hyperliquid exchange.
+    ///
+    /// Uses EIP-712 user-signed-action signing (not L1 action signing).
+    #[tracing::instrument(skip(self))]
+    pub async fn spot_send(
+        &self,
+        destination: &str,
+        token: &str,
+        amount: Decimal,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        let chain = if self.client.is_mainnet() {
+            "Mainnet"
+        } else {
+            "Testnet"
+        };
+        let nonce = self.next_nonce();
+        let action = serde_json::json!({
+            "type": "spotSend",
+            "hyperliquidChain": chain,
+            "signatureChainId": "0xa4b1",
+            "destination": destination,
+            "token": token,
+            "amount": amount.to_string(),
+            "time": nonce,
+        });
+
+        let types = vec![
+            hl_signing::EIP712Field::new("hyperliquidChain", "string"),
+            hl_signing::EIP712Field::new("destination", "string"),
+            hl_signing::EIP712Field::new("token", "string"),
+            hl_signing::EIP712Field::new("amount", "string"),
+            hl_signing::EIP712Field::new("time", "uint64"),
+        ];
+
+        let signature = hl_signing::sign_user_signed_action(
+            self.signer.as_ref(),
+            &self.address,
+            &action,
+            &types,
+            "HyperliquidTransaction:SpotSend",
+            self.client.is_mainnet(),
+        )?;
+
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault)
+            .await?;
+
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        if api_status != "ok" {
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected spotSend: {}", result),
+            });
+        }
+
+        serde_json::from_value(result)
+            .map_err(|e| HlError::Parse(format!("spot_send response: {e}")))
+    }
+
     /// Transfer funds between spot and perp accounts.
     ///
     /// When `to_perp` is `true`, funds move from spot to perp.
