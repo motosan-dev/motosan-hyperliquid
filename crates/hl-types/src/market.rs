@@ -134,6 +134,36 @@ impl HlSpotMeta {
     }
 }
 
+/// A single recent trade.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlTrade {
+    /// Coin symbol.
+    pub coin: String,
+    /// Trade side ("B" for buy, "A" for ask/sell).
+    pub side: String,
+    /// Trade price.
+    pub px: Decimal,
+    /// Trade size.
+    pub sz: Decimal,
+    /// Timestamp in milliseconds.
+    pub time: u64,
+}
+
+impl HlTrade {
+    /// Creates a new `HlTrade`.
+    pub fn new(coin: String, side: String, px: Decimal, sz: Decimal, time: u64) -> Self {
+        Self {
+            coin,
+            side,
+            px,
+            sz,
+            time,
+        }
+    }
+}
+
 /// A spot token balance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

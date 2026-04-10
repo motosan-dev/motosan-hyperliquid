@@ -160,6 +160,54 @@ pub struct HlVaultDetails {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// User fee information including maker/taker rates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlUserFees {
+    /// Fee tier level.
+    pub fee_tier: String,
+    /// Maker fee rate (e.g. "0.0002").
+    pub maker_rate: Decimal,
+    /// Taker fee rate (e.g. "0.0005").
+    pub taker_rate: Decimal,
+}
+
+impl HlUserFees {
+    /// Creates a new `HlUserFees`.
+    pub fn new(fee_tier: String, maker_rate: Decimal, taker_rate: Decimal) -> Self {
+        Self {
+            fee_tier,
+            maker_rate,
+            taker_rate,
+        }
+    }
+}
+
+/// API rate limit status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlRateLimitStatus {
+    /// Current number of requests used.
+    pub used: u64,
+    /// Maximum allowed requests in the window.
+    pub limit: u64,
+    /// Window duration in milliseconds.
+    pub window_ms: u64,
+}
+
+impl HlRateLimitStatus {
+    /// Creates a new `HlRateLimitStatus`.
+    pub fn new(used: u64, limit: u64, window_ms: u64) -> Self {
+        Self {
+            used,
+            limit,
+            window_ms,
+        }
+    }
+}
+
 /// An extra (sub-)agent approval entry.
 ///
 /// Returned by the `extraAgents` info endpoint.
@@ -600,5 +648,77 @@ mod tests {
         let json = serde_json::to_string(&agent).unwrap();
         assert!(json.contains("address"));
         assert!(json.contains("name"));
+    }
+
+    #[test]
+    fn user_fees_serde_roundtrip() {
+        let fees = HlUserFees {
+            fee_tier: "VIP2".into(),
+            maker_rate: Decimal::from_str("0.0001").unwrap(),
+            taker_rate: Decimal::from_str("0.0003").unwrap(),
+        };
+        let json = serde_json::to_string(&fees).unwrap();
+        let parsed: HlUserFees = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.fee_tier, "VIP2");
+        assert_eq!(parsed.maker_rate, Decimal::from_str("0.0001").unwrap());
+        assert_eq!(parsed.taker_rate, Decimal::from_str("0.0003").unwrap());
+    }
+
+    #[test]
+    fn user_fees_camel_case_keys() {
+        let fees = HlUserFees {
+            fee_tier: "T1".into(),
+            maker_rate: Decimal::ZERO,
+            taker_rate: Decimal::ONE,
+        };
+        let json = serde_json::to_string(&fees).unwrap();
+        assert!(json.contains("feeTier"));
+        assert!(json.contains("makerRate"));
+        assert!(json.contains("takerRate"));
+    }
+
+    #[test]
+    fn user_fees_constructor() {
+        let fees = HlUserFees::new(
+            "VIP1".into(),
+            Decimal::from_str("0.0002").unwrap(),
+            Decimal::from_str("0.0005").unwrap(),
+        );
+        assert_eq!(fees.fee_tier, "VIP1");
+        assert_eq!(fees.maker_rate, Decimal::from_str("0.0002").unwrap());
+        assert_eq!(fees.taker_rate, Decimal::from_str("0.0005").unwrap());
+    }
+
+    #[test]
+    fn rate_limit_status_serde_roundtrip() {
+        let status = HlRateLimitStatus {
+            used: 42,
+            limit: 1200,
+            window_ms: 60000,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let parsed: HlRateLimitStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.used, 42);
+        assert_eq!(parsed.limit, 1200);
+        assert_eq!(parsed.window_ms, 60000);
+    }
+
+    #[test]
+    fn rate_limit_status_camel_case_keys() {
+        let status = HlRateLimitStatus {
+            used: 0,
+            limit: 100,
+            window_ms: 30000,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("windowMs"));
+    }
+
+    #[test]
+    fn rate_limit_status_constructor() {
+        let status = HlRateLimitStatus::new(10, 500, 60000);
+        assert_eq!(status.used, 10);
+        assert_eq!(status.limit, 500);
+        assert_eq!(status.window_ms, 60000);
     }
 }

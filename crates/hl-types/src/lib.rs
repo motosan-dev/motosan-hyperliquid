@@ -18,13 +18,13 @@ pub mod signature;
 pub mod util;
 
 pub use account::{
-    HlAccountState, HlBorrowLendState, HlExtraAgent, HlFill, HlPosition, HlStakingDelegation,
-    HlVaultDetails, HlVaultSummary,
+    HlAccountState, HlBorrowLendState, HlExtraAgent, HlFill, HlPosition, HlRateLimitStatus,
+    HlStakingDelegation, HlUserFees, HlVaultDetails, HlVaultSummary,
 };
 pub use candle::HlCandle;
 pub use error::HlError;
 pub use market::{
-    HlAssetInfo, HlFundingRate, HlOrderbook, HlSpotAssetInfo, HlSpotBalance, HlSpotMeta,
+    HlAssetInfo, HlFundingRate, HlOrderbook, HlSpotAssetInfo, HlSpotBalance, HlSpotMeta, HlTrade,
 };
 pub use order::{
     CancelByCloidRequest, CancelRequest, LimitOrderType, ModifyRequest, OrderStatus, OrderTypeWire,

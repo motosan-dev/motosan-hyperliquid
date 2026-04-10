@@ -115,4 +115,80 @@ impl OrderExecutor {
         serde_json::from_value(result)
             .map_err(|e| HlError::Parse(format!("set_referrer response: {e}")))
     }
+
+    /// Approve a builder fee for MEV protection.
+    ///
+    /// Uses EIP-712 user-signed-action signing.
+    #[tracing::instrument(skip(self))]
+    pub async fn approve_builder_fee(
+        &self,
+        builder: &str,
+        max_fee_rate: &str,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        let chain = if self.client.is_mainnet() {
+            "Mainnet"
+        } else {
+            "Testnet"
+        };
+        let nonce = self.next_nonce();
+        let action = serde_json::json!({
+            "type": "approveBuilderFee",
+            "hyperliquidChain": chain,
+            "signatureChainId": "0xa4b1",
+            "maxFeeRate": max_fee_rate,
+            "builder": builder,
+            "nonce": nonce,
+        });
+
+        let types = vec![
+            hl_signing::EIP712Field::new("hyperliquidChain", "string"),
+            hl_signing::EIP712Field::new("maxFeeRate", "string"),
+            hl_signing::EIP712Field::new("builder", "address"),
+            hl_signing::EIP712Field::new("nonce", "uint64"),
+        ];
+
+        let signature = hl_signing::sign_user_signed_action(
+            self.signer.as_ref(),
+            &self.address,
+            &action,
+            &types,
+            "HyperliquidTransaction:ApproveBuilderFee",
+            self.client.is_mainnet(),
+        )?;
+
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault)
+            .await?;
+
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        if api_status != "ok" {
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected approveBuilderFee: {}", result),
+            });
+        }
+
+        serde_json::from_value(result)
+            .map_err(|e| HlError::Parse(format!("approve_builder_fee response: {e}")))
+    }
+
+    /// Modify EVM user configuration.
+    #[tracing::instrument(skip(self))]
+    pub async fn evm_user_modify(
+        &self,
+        modifications: serde_json::Value,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        let action = serde_json::json!({
+            "type": "evmUserModify",
+            "modifications": modifications,
+        });
+        let result = self.send_signed_action(action, vault).await?;
+        serde_json::from_value(result)
+            .map_err(|e| HlError::Parse(format!("evm_user_modify response: {e}")))
+    }
 }

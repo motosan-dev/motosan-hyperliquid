@@ -5,8 +5,9 @@ use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    HlAccountState, HlBorrowLendState, HlError, HlExtraAgent, HlFill, HlPosition, HlSpotBalance,
-    HlStakingDelegation, HlVaultDetails, HlVaultSummary,
+    HlAccountState, HlBorrowLendState, HlError, HlExtraAgent, HlFill, HlPosition,
+    HlRateLimitStatus, HlSpotBalance, HlStakingDelegation, HlUserFees, HlVaultDetails,
+    HlVaultSummary,
 };
 
 /// Typed interface for Hyperliquid account state queries.
@@ -219,6 +220,22 @@ impl Account {
         let payload = serde_json::json!({ "type": "spotClearinghouseState", "user": address });
         let resp = self.client.post_info(payload).await?;
         parse_borrow_lend_state(&resp)
+    }
+
+    /// Fetch fee tier and maker/taker rates for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn user_fees(&self, address: &str) -> Result<HlUserFees, HlError> {
+        let payload = serde_json::json!({ "type": "userFees", "user": address });
+        let resp = self.client.post_info(payload).await?;
+        parse_user_fees(&resp)
+    }
+
+    /// Fetch current API rate limit status for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn rate_limit_status(&self, address: &str) -> Result<HlRateLimitStatus, HlError> {
+        let payload = serde_json::json!({ "type": "userRateLimit", "user": address });
+        let resp = self.client.post_info(payload).await?;
+        parse_rate_limit_status(&resp)
     }
 }
 
@@ -508,6 +525,64 @@ pub fn parse_borrow_lend_state(
     }
 
     Ok(states)
+}
+
+/// Parse a `userFees` JSON response into an [`HlUserFees`].
+///
+/// The API returns something like:
+///   `{"userCrossRate": "0.0002", "userAddRate": "0.0005", ...}`
+/// We map `userCrossRate` → `maker_rate` and `userAddRate` → `taker_rate`.
+pub fn parse_user_fees(resp: &serde_json::Value) -> Result<HlUserFees, HlError> {
+    let fee_tier = resp
+        .get("feeTier")
+        .or_else(|| resp.get("userFeeTier"))
+        .and_then(|v| match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    let maker_rate = parse_str_decimal(
+        resp.get("userCrossRate")
+            .ok_or_else(|| HlError::Parse("missing 'userCrossRate' in userFees".into()))?,
+        "userCrossRate",
+    )?;
+
+    let taker_rate = parse_str_decimal(
+        resp.get("userAddRate")
+            .ok_or_else(|| HlError::Parse("missing 'userAddRate' in userFees".into()))?,
+        "userAddRate",
+    )?;
+
+    Ok(HlUserFees::new(fee_tier, maker_rate, taker_rate))
+}
+
+/// Parse a `userRateLimit` JSON response into an [`HlRateLimitStatus`].
+///
+/// The API returns something like:
+///   `{"cumVlm": "...", "nRequestsUsed": 42, "nRequestsCap": 1200, ...}`
+pub fn parse_rate_limit_status(resp: &serde_json::Value) -> Result<HlRateLimitStatus, HlError> {
+    let used = resp
+        .get("nRequestsUsed")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| {
+            HlError::Parse("missing or invalid 'nRequestsUsed' in userRateLimit".into())
+        })?;
+
+    let limit = resp
+        .get("nRequestsCap")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| {
+            HlError::Parse("missing or invalid 'nRequestsCap' in userRateLimit".into())
+        })?;
+
+    let window_ms = resp
+        .get("windowMs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(60_000); // default 60s window if not provided
+
+    Ok(HlRateLimitStatus::new(used, limit, window_ms))
 }
 
 #[cfg(test)]
@@ -928,5 +1003,104 @@ mod tests {
         let fills = parse_fills(&resp).unwrap();
         assert_eq!(fills.len(), 1);
         assert_eq!(fills[0].closed_pnl, Decimal::ZERO);
+    }
+
+    #[test]
+    fn parse_user_fees_basic() {
+        let resp = serde_json::json!({
+            "userCrossRate": "0.0002",
+            "userAddRate": "0.0005",
+            "feeTier": "VIP1"
+        });
+        let fees = parse_user_fees(&resp).unwrap();
+        assert_eq!(fees.fee_tier, "VIP1");
+        assert_eq!(fees.maker_rate, Decimal::from_str("0.0002").unwrap());
+        assert_eq!(fees.taker_rate, Decimal::from_str("0.0005").unwrap());
+    }
+
+    #[test]
+    fn parse_user_fees_numeric_tier() {
+        let resp = serde_json::json!({
+            "userCrossRate": "0.0001",
+            "userAddRate": "0.00035",
+            "feeTier": 3
+        });
+        let fees = parse_user_fees(&resp).unwrap();
+        assert_eq!(fees.fee_tier, "3");
+        assert_eq!(fees.maker_rate, Decimal::from_str("0.0001").unwrap());
+        assert_eq!(fees.taker_rate, Decimal::from_str("0.00035").unwrap());
+    }
+
+    #[test]
+    fn parse_user_fees_missing_tier_defaults_empty() {
+        let resp = serde_json::json!({
+            "userCrossRate": "0.0002",
+            "userAddRate": "0.0005"
+        });
+        let fees = parse_user_fees(&resp).unwrap();
+        assert_eq!(fees.fee_tier, "");
+    }
+
+    #[test]
+    fn parse_user_fees_missing_cross_rate_errors() {
+        let resp = serde_json::json!({
+            "userAddRate": "0.0005",
+            "feeTier": "VIP1"
+        });
+        assert!(parse_user_fees(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_user_fees_missing_add_rate_errors() {
+        let resp = serde_json::json!({
+            "userCrossRate": "0.0002",
+            "feeTier": "VIP1"
+        });
+        assert!(parse_user_fees(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_rate_limit_status_basic() {
+        let resp = serde_json::json!({
+            "cumVlm": "500000.0",
+            "nRequestsUsed": 42,
+            "nRequestsCap": 1200,
+            "windowMs": 60000
+        });
+        let status = parse_rate_limit_status(&resp).unwrap();
+        assert_eq!(status.used, 42);
+        assert_eq!(status.limit, 1200);
+        assert_eq!(status.window_ms, 60000);
+    }
+
+    #[test]
+    fn parse_rate_limit_status_default_window() {
+        let resp = serde_json::json!({
+            "cumVlm": "100.0",
+            "nRequestsUsed": 10,
+            "nRequestsCap": 500
+        });
+        let status = parse_rate_limit_status(&resp).unwrap();
+        assert_eq!(status.used, 10);
+        assert_eq!(status.limit, 500);
+        assert_eq!(status.window_ms, 60_000);
+    }
+
+    #[test]
+    fn parse_rate_limit_status_missing_used_errors() {
+        let resp = serde_json::json!({
+            "nRequestsCap": 1200,
+            "windowMs": 60000
+        });
+        assert!(parse_rate_limit_status(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_rate_limit_status_missing_cap_errors() {
+        let resp = serde_json::json!({
+            "nRequestsUsed": 42,
+            "windowMs": 60000
+        });
+        assert!(parse_rate_limit_status(&resp).is_err());
     }
 }
