@@ -25,7 +25,7 @@ pub use candle::HlCandle;
 pub use error::HlError;
 pub use market::{
     HlAssetInfo, HlFundingRate, HlOrderbook, HlPerpDexStatus, HlSpotAssetInfo, HlSpotBalance,
-    HlSpotMeta, HlTrade,
+    HlSpotMeta, HlTrade, TradeSide,
 };
 pub use order::{
     CancelByCloidRequest, CancelRequest, LimitOrderType, ModifyRequest, OrderStatus, OrderTypeWire,

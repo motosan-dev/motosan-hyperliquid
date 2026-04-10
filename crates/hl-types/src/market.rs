@@ -134,6 +134,26 @@ impl HlSpotMeta {
     }
 }
 
+/// Side of a trade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TradeSide {
+    /// Buy / bid side.
+    #[serde(rename = "B")]
+    Buy,
+    /// Sell / ask side.
+    #[serde(rename = "A")]
+    Sell,
+}
+
+impl std::fmt::Display for TradeSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradeSide::Buy => write!(f, "B"),
+            TradeSide::Sell => write!(f, "A"),
+        }
+    }
+}
+
 /// A single recent trade.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,8 +161,8 @@ impl HlSpotMeta {
 pub struct HlTrade {
     /// Coin symbol.
     pub coin: String,
-    /// Trade side ("B" for buy, "A" for ask/sell).
-    pub side: String,
+    /// Trade side.
+    pub side: TradeSide,
     /// Trade price.
     pub px: Decimal,
     /// Trade size.
@@ -153,7 +173,7 @@ pub struct HlTrade {
 
 impl HlTrade {
     /// Creates a new `HlTrade`.
-    pub fn new(coin: String, side: String, px: Decimal, sz: Decimal, time: u64) -> Self {
+    pub fn new(coin: String, side: TradeSide, px: Decimal, sz: Decimal, time: u64) -> Self {
         Self {
             coin,
             side,
