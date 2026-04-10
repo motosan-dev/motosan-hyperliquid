@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
+documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Unified facade crate for the motosan-hyperliquid SDK — re-exports all sub-crates behind feature flags"

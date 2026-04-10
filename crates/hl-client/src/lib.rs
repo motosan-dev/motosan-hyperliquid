@@ -6,6 +6,9 @@
 //! exponential backoff, and rate-limit awareness. Enable the `ws` feature
 //! for [`HyperliquidWs`] WebSocket support with auto-reconnect.
 
+// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
+#![allow(missing_docs)]
+
 pub mod client;
 pub mod rate_limit;
 pub mod retry;

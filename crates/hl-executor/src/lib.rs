@@ -4,6 +4,9 @@
 //! orders (stop-loss, take-profit), vault transfers, and position
 //! reconciliation. Handles EIP-712 signing and nonce management internally.
 
+// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
+#![allow(missing_docs)]
+
 pub mod executor;
 pub mod meta_cache;
 pub mod reconcile;

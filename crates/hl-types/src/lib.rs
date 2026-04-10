@@ -8,6 +8,9 @@
 //!
 //! This crate has no network dependencies.
 
+// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
+#![allow(missing_docs)]
+
 pub mod account;
 pub mod candle;
 pub mod error;
