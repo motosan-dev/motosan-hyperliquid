@@ -1,5 +1,3 @@
-#![cfg(feature = "live-test")]
-
 use hl_client::HyperliquidClient;
 use hl_market::MarketData;
 use hl_types::Decimal;
@@ -10,6 +8,7 @@ fn market() -> MarketData {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_candles() {
     let m = market();
     let candles = m.candles("BTC", "1h", 10).await;
@@ -25,6 +24,7 @@ async fn live_candles() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_orderbook() {
     let m = market();
     let book = m.orderbook("BTC").await;
@@ -44,6 +44,7 @@ async fn live_orderbook() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_asset_info() {
     let m = market();
     let assets = m.asset_info().await;
@@ -55,6 +56,7 @@ async fn live_asset_info() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_funding_rates() {
     let m = market();
     let rates = m.funding_rates().await;
@@ -64,6 +66,7 @@ async fn live_funding_rates() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_mid_price() {
     let m = market();
     let price = m.mid_price("BTC").await;

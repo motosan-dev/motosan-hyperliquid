@@ -13,7 +13,6 @@ description = "Hyperliquid REST and WebSocket client with retry and rate-limit h
 [features]
 default = []
 ws = ["tokio-tungstenite", "futures-util", "rand"]
-live-test = []
 
 [dependencies]
 hl-types.workspace = true

@@ -1,5 +1,3 @@
-#![cfg(feature = "live-test")]
-
 use hl_account::Account;
 use hl_client::HyperliquidClient;
 use hl_types::Decimal;
@@ -14,6 +12,7 @@ fn account() -> (Account, String) {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_account_state() {
     let (acc, addr) = account();
     let state = acc.state(&addr).await;
@@ -24,6 +23,7 @@ async fn live_account_state() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_positions() {
     let (acc, addr) = account();
     let positions = acc.positions(&addr).await;
@@ -36,6 +36,7 @@ async fn live_positions() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_fills() {
     let (acc, addr) = account();
     let fills = acc.fills(&addr).await;
@@ -44,6 +45,7 @@ async fn live_fills() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_open_orders() {
     let (acc, addr) = account();
     let result = acc.open_orders(&addr).await;
@@ -51,6 +53,7 @@ async fn live_open_orders() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_historical_orders() {
     let (acc, addr) = account();
     let result = acc.historical_orders(&addr).await;

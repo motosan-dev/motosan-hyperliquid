@@ -1,5 +1,3 @@
-#![cfg(feature = "live-test")]
-
 use hl_client::HyperliquidClient;
 
 fn testnet_client() -> HyperliquidClient {
@@ -7,6 +5,7 @@ fn testnet_client() -> HyperliquidClient {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_post_info_meta() {
     let client = testnet_client();
     let resp = client.post_info(serde_json::json!({"type": "meta"})).await;
@@ -24,6 +23,7 @@ async fn live_post_info_meta() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_post_info_candle_snapshot() {
     let client = testnet_client();
     let resp = client
@@ -38,6 +38,7 @@ async fn live_post_info_candle_snapshot() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn live_post_info_l2_book() {
     let client = testnet_client();
     let resp = client
