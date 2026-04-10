@@ -2,16 +2,36 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum HlError {
-    #[error("Signing error: {0}")]
-    Signing(String),
-    #[error("Serialization error: {0}")]
-    Serialization(String),
-    #[error("HTTP error: {0}")]
-    Http(String),
-    #[error("Timeout: {0}")]
-    Timeout(String),
-    #[error("WebSocket error: {0}")]
-    WebSocket(String),
+    #[error("Signing error: {message}")]
+    Signing {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+    #[error("Serialization error: {message}")]
+    Serialization {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+    #[error("HTTP error: {message}")]
+    Http {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+    #[error("Timeout: {message}")]
+    Timeout {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+    #[error("WebSocket error: {message}")]
+    WebSocket {
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
     #[error("API error (HTTP {status}): {body}")]
     Api { status: u16, body: String },
     #[error("Order rejected: {reason}")]
@@ -25,6 +45,8 @@ pub enum HlError {
     },
     #[error("Parse error: {0}")]
     Parse(String),
+    #[error("Config error: {0}")]
+    Config(String),
     #[error("WebSocket reconnect cancelled")]
     WsCancelled,
     #[error("WebSocket reconnect failed after {attempts} attempts")]
@@ -32,12 +54,52 @@ pub enum HlError {
 }
 
 impl HlError {
+    /// Create an `Http` error without an underlying source.
+    pub fn http(message: impl Into<String>) -> Self {
+        HlError::Http {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    /// Create a `Timeout` error without an underlying source.
+    pub fn timeout(message: impl Into<String>) -> Self {
+        HlError::Timeout {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    /// Create a `Signing` error without an underlying source.
+    pub fn signing(message: impl Into<String>) -> Self {
+        HlError::Signing {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    /// Create a `Serialization` error without an underlying source.
+    pub fn serialization(message: impl Into<String>) -> Self {
+        HlError::Serialization {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    /// Create a `WebSocket` error without an underlying source.
+    pub fn websocket(message: impl Into<String>) -> Self {
+        HlError::WebSocket {
+            message: message.into(),
+            source: None,
+        }
+    }
+
     /// Returns `true` if the error is retryable (network timeout, 5xx, or 429).
     pub fn is_retryable(&self) -> bool {
         match self {
-            HlError::Http(_) => true,
-            HlError::Timeout(_) => true,
-            HlError::WebSocket(_) => true,
+            HlError::Http { .. } => true,
+            HlError::Timeout { .. } => true,
+            HlError::WebSocket { .. } => true,
             HlError::RateLimited { .. } => true,
             HlError::Api { status, .. } => {
                 // Retryable if server error (5xx)
@@ -62,7 +124,7 @@ mod tests {
 
     #[test]
     fn is_retryable_http_error() {
-        assert!(HlError::Http("timeout".into()).is_retryable());
+        assert!(HlError::http("timeout").is_retryable());
     }
 
     #[test]
@@ -114,12 +176,12 @@ mod tests {
 
     #[test]
     fn is_retryable_timeout() {
-        assert!(HlError::Timeout("request timed out".into()).is_retryable());
+        assert!(HlError::timeout("request timed out").is_retryable());
     }
 
     #[test]
     fn is_retryable_websocket() {
-        assert!(HlError::WebSocket("connection failed".into()).is_retryable());
+        assert!(HlError::websocket("connection failed").is_retryable());
     }
 
     #[test]
@@ -132,7 +194,7 @@ mod tests {
 
     #[test]
     fn not_retryable_signing() {
-        assert!(!HlError::Signing("key error".into()).is_retryable());
+        assert!(!HlError::signing("key error").is_retryable());
     }
 
     #[test]
@@ -142,7 +204,7 @@ mod tests {
 
     #[test]
     fn not_retryable_serialization() {
-        assert!(!HlError::Serialization("serde fail".into()).is_retryable());
+        assert!(!HlError::serialization("serde fail").is_retryable());
     }
 
     #[test]
@@ -161,10 +223,10 @@ mod tests {
 
     #[test]
     fn retry_after_ms_none_for_other_errors() {
-        assert_eq!(HlError::Http("x".into()).retry_after_ms(), None);
-        assert_eq!(HlError::Timeout("x".into()).retry_after_ms(), None);
-        assert_eq!(HlError::WebSocket("x".into()).retry_after_ms(), None);
-        assert_eq!(HlError::Signing("x".into()).retry_after_ms(), None);
+        assert_eq!(HlError::http("x").retry_after_ms(), None);
+        assert_eq!(HlError::timeout("x").retry_after_ms(), None);
+        assert_eq!(HlError::websocket("x").retry_after_ms(), None);
+        assert_eq!(HlError::signing("x").retry_after_ms(), None);
         assert_eq!(HlError::Parse("x".into()).retry_after_ms(), None);
         assert_eq!(
             HlError::Api {
@@ -182,7 +244,7 @@ mod tests {
 
     #[test]
     fn error_display_formatting() {
-        let err = HlError::Http("connection refused".into());
+        let err = HlError::http("connection refused");
         assert_eq!(format!("{err}"), "HTTP error: connection refused");
 
         let err = HlError::Api {
@@ -197,15 +259,61 @@ mod tests {
         };
         assert!(format!("{err}").contains("2000ms"));
 
-        let err = HlError::Timeout("request timed out".into());
+        let err = HlError::timeout("request timed out");
         assert_eq!(format!("{err}"), "Timeout: request timed out");
 
-        let err = HlError::WebSocket("connection failed".into());
+        let err = HlError::websocket("connection failed");
         assert_eq!(format!("{err}"), "WebSocket error: connection failed");
 
         let err = HlError::Rejected {
             reason: "insufficient margin".into(),
         };
         assert_eq!(format!("{err}"), "Order rejected: insufficient margin");
+    }
+
+    #[test]
+    fn http_error_with_source_preserves_chain() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        let err = HlError::Http {
+            message: "request failed".into(),
+            source: Some(Box::new(io_err)),
+        };
+        assert!(
+            std::error::Error::source(&err).is_some(),
+            "source should be present when provided"
+        );
+    }
+
+    #[test]
+    fn http_error_without_source() {
+        let err = HlError::http("no underlying cause");
+        assert!(
+            std::error::Error::source(&err).is_none(),
+            "source should be None for convenience constructor"
+        );
+    }
+
+    #[test]
+    fn serialization_not_retryable() {
+        let err = HlError::serialization("bad json");
+        assert!(
+            !err.is_retryable(),
+            "Serialization errors should not be retryable"
+        );
+    }
+
+    #[test]
+    fn config_error_not_retryable() {
+        let err = HlError::Config("invalid timeout".into());
+        assert!(
+            !err.is_retryable(),
+            "Config errors should not be retryable"
+        );
+    }
+
+    #[test]
+    fn config_error_display() {
+        let err = HlError::Config("missing API key".into());
+        assert_eq!(format!("{err}"), "Config error: missing API key");
     }
 }

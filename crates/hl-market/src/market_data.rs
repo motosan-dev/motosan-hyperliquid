@@ -31,6 +31,7 @@ impl MarketData {
     ///
     /// `interval` must be one of: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`.
     /// `limit` caps the number of candles returned (most recent).
+    #[tracing::instrument(skip(self))]
     pub async fn candles(
         &self,
         coin: &str,
@@ -56,6 +57,7 @@ impl MarketData {
     }
 
     /// Fetch the L2 orderbook for a given coin.
+    #[tracing::instrument(skip(self))]
     pub async fn orderbook(&self, coin: &str) -> Result<HlOrderbook, HlError> {
         let coin = normalize_coin(coin).to_uppercase();
         let payload = serde_json::json!({ "type": "l2Book", "coin": coin });
@@ -64,6 +66,7 @@ impl MarketData {
     }
 
     /// Fetch static asset metadata for all perpetuals.
+    #[tracing::instrument(skip(self))]
     pub async fn asset_info(&self) -> Result<Vec<HlAssetInfo>, HlError> {
         let payload = serde_json::json!({ "type": "metaAndAssetCtxs" });
         let resp = self.client.post_info(payload).await?;
@@ -71,6 +74,7 @@ impl MarketData {
     }
 
     /// Fetch current funding rates for all perpetuals.
+    #[tracing::instrument(skip(self))]
     pub async fn funding_rates(&self) -> Result<Vec<HlFundingRate>, HlError> {
         let payload = serde_json::json!({ "type": "metaAndAssetCtxs" });
         let resp = self.client.post_info(payload).await?;
@@ -80,6 +84,7 @@ impl MarketData {
     /// Compute the mid-price for a coin from its current orderbook.
     ///
     /// Returns `Err` if either the bid or ask side of the book is empty.
+    #[tracing::instrument(skip(self))]
     pub async fn mid_price(&self, coin: &str) -> Result<Decimal, HlError> {
         let book = self.orderbook(coin).await?;
         let best_bid = book.bids.first().map(|(p, _)| *p);
@@ -140,15 +145,15 @@ pub fn parse_candles(response: &serde_json::Value, limit: usize) -> Result<Vec<H
             .and_then(|v| v.as_u64())
             .ok_or_else(|| parse_err("missing 't' field in candle entry"))?;
 
-        candles.push(HlCandle {
-            timestamp: time_ms,
-            open: parse_str_decimal(item.get("o"), "o")?,
-            high: parse_str_decimal(item.get("h"), "h")?,
-            low: parse_str_decimal(item.get("l"), "l")?,
-            close: parse_str_decimal(item.get("c"), "c")?,
+        candles.push(HlCandle::new(
+            time_ms,
+            parse_str_decimal(item.get("o"), "o")?,
+            parse_str_decimal(item.get("h"), "h")?,
+            parse_str_decimal(item.get("l"), "l")?,
+            parse_str_decimal(item.get("c"), "c")?,
             // Volume of 0 is valid (no trades in interval), so treat missing as 0.
-            volume: parse_str_decimal(item.get("v"), "v").unwrap_or(Decimal::ZERO),
-        });
+            parse_str_decimal(item.get("v"), "v").unwrap_or(Decimal::ZERO),
+        ));
     }
 
     // Return only the most recent `limit` candles.
@@ -201,12 +206,7 @@ pub fn parse_orderbook(response: &serde_json::Value, coin: &str) -> Result<HlOrd
         .and_then(|v| v.as_u64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
-    Ok(HlOrderbook {
-        coin: coin.to_string(),
-        bids,
-        asks,
-        timestamp,
-    })
+    Ok(HlOrderbook::new(coin.to_string(), bids, asks, timestamp))
 }
 
 /// Parse a `metaAndAssetCtxs` response into a list of `HlAssetInfo`.
@@ -274,13 +274,7 @@ pub fn parse_asset_info(response: &serde_json::Value) -> Result<Vec<HlAssetInfo>
             Decimal::ONE / Decimal::from(10u64.pow(sz_decimals))
         };
 
-        result.push(HlAssetInfo {
-            coin,
-            asset_id: idx as u32,
-            min_size,
-            sz_decimals,
-            px_decimals,
-        });
+        result.push(HlAssetInfo::new(coin, idx as u32, min_size, sz_decimals, px_decimals));
     }
 
     Ok(result)
@@ -329,11 +323,7 @@ pub fn parse_funding_rates(response: &serde_json::Value) -> Result<Vec<HlFunding
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        result.push(HlFundingRate {
-            coin,
-            funding_rate,
-            next_funding_time,
-        });
+        result.push(HlFundingRate::new(coin, funding_rate, next_funding_time));
     }
 
     Ok(result)
@@ -627,7 +617,7 @@ mod tests {
         ) -> Result<serde_json::Value, HlError> {
             let mut queue = self.responses.lock().unwrap();
             if queue.is_empty() {
-                return Err(HlError::Http("no more mock responses".into()));
+                return Err(HlError::http("no more mock responses"));
             }
             Ok(queue.remove(0))
         }

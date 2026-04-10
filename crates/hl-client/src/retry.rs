@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use hl_types::HlError;
+
 /// Maximum delay cap to prevent unbounded waits (30 seconds).
 const MAX_DELAY_MS: u64 = 30_000;
 
@@ -35,6 +37,17 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
+    /// Validate that the retry configuration has sensible values.
+    pub fn validate(&self) -> Result<(), HlError> {
+        if self.base_delay_ms == 0 {
+            return Err(HlError::Config("base_delay_ms must be > 0".into()));
+        }
+        if self.backoff_factor == 0 {
+            return Err(HlError::Config("backoff_factor must be > 0".into()));
+        }
+        Ok(())
+    }
+
     /// Compute the delay for the given attempt number (0-indexed).
     ///
     /// Uses saturating arithmetic to prevent overflow with custom configs.
@@ -56,6 +69,22 @@ pub struct TimeoutConfig {
     pub request_timeout: Duration,
     /// Maximum time to wait for a TCP connection to be established (default: 10s).
     pub connect_timeout: Duration,
+}
+
+impl TimeoutConfig {
+    /// Validate that the timeout configuration has sensible values.
+    pub fn validate(&self) -> Result<(), HlError> {
+        if self.request_timeout.is_zero() {
+            return Err(HlError::Config("request_timeout must be > 0".into()));
+        }
+        if self.connect_timeout.is_zero() {
+            return Err(HlError::Config("connect_timeout must be > 0".into()));
+        }
+        if self.connect_timeout > self.request_timeout {
+            return Err(HlError::Config("connect_timeout must be <= request_timeout".into()));
+        }
+        Ok(())
+    }
 }
 
 impl Default for TimeoutConfig {
@@ -132,5 +161,42 @@ mod tests {
         let config = TimeoutConfig::default();
         assert_eq!(config.request_timeout, Duration::from_secs(30));
         assert_eq!(config.connect_timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn validate_default_retry_ok() {
+        assert!(RetryConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_zero_base_delay_fails() {
+        let config = RetryConfig { base_delay_ms: 0, ..Default::default() };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_zero_backoff_factor_fails() {
+        let config = RetryConfig { backoff_factor: 0, ..Default::default() };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_default_timeout_ok() {
+        assert!(TimeoutConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_zero_request_timeout_fails() {
+        let config = TimeoutConfig { request_timeout: Duration::ZERO, ..Default::default() };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_connect_exceeds_request_fails() {
+        let config = TimeoutConfig {
+            request_timeout: Duration::from_secs(5),
+            connect_timeout: Duration::from_secs(10),
+        };
+        assert!(config.validate().is_err());
     }
 }

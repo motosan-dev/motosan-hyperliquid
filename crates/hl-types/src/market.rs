@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Level-2 orderbook snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct HlOrderbook {
     /// Coin/asset symbol.
     pub coin: String,
@@ -14,9 +15,27 @@ pub struct HlOrderbook {
     pub timestamp: u64,
 }
 
+impl HlOrderbook {
+    /// Creates a new `HlOrderbook`.
+    pub fn new(
+        coin: String,
+        bids: Vec<(Decimal, Decimal)>,
+        asks: Vec<(Decimal, Decimal)>,
+        timestamp: u64,
+    ) -> Self {
+        Self {
+            coin,
+            bids,
+            asks,
+            timestamp,
+        }
+    }
+}
+
 /// Static metadata for an asset listed on Hyperliquid.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct HlAssetInfo {
     /// Asset symbol (e.g. "BTC").
     pub coin: String,
@@ -30,9 +49,29 @@ pub struct HlAssetInfo {
     pub px_decimals: u32,
 }
 
+impl HlAssetInfo {
+    /// Creates a new `HlAssetInfo`.
+    pub fn new(
+        coin: String,
+        asset_id: u32,
+        min_size: Decimal,
+        sz_decimals: u32,
+        px_decimals: u32,
+    ) -> Self {
+        Self {
+            coin,
+            asset_id,
+            min_size,
+            sz_decimals,
+            px_decimals,
+        }
+    }
+}
+
 /// Current funding rate for a perpetual.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct HlFundingRate {
     /// Coin/asset symbol.
     pub coin: String,
@@ -40,6 +79,17 @@ pub struct HlFundingRate {
     pub funding_rate: Decimal,
     /// Next funding time (ms since epoch).
     pub next_funding_time: u64,
+}
+
+impl HlFundingRate {
+    /// Creates a new `HlFundingRate`.
+    pub fn new(coin: String, funding_rate: Decimal, next_funding_time: u64) -> Self {
+        Self {
+            coin,
+            funding_rate,
+            next_funding_time,
+        }
+    }
 }
 
 #[cfg(test)]

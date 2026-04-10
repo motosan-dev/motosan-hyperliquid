@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use hl_types::{HlError, Signature};
+use tokio_util::sync::CancellationToken;
 
+use crate::rate_limit::{RateLimitConfig, RateLimiter};
 use crate::retry::{RetryConfig, TimeoutConfig};
 use crate::transport::HttpTransport;
 
@@ -24,6 +26,8 @@ pub struct HyperliquidClient {
     base_url: String,
     is_mainnet: bool,
     retry_config: RetryConfig,
+    rate_limiter: RateLimiter,
+    shutdown: CancellationToken,
 }
 
 impl HyperliquidClient {
@@ -48,23 +52,63 @@ impl HyperliquidClient {
     }
 
     /// Create a new client with custom retry and timeout configurations.
+    ///
+    /// Uses the default [`RateLimitConfig`] (10 rps, 5 concurrent).
     pub fn with_config(
         is_mainnet: bool,
         retry_config: RetryConfig,
         timeout_config: TimeoutConfig,
     ) -> Result<Self, HlError> {
+        Self::with_full_config(
+            is_mainnet,
+            retry_config,
+            timeout_config,
+            RateLimitConfig::default(),
+        )
+    }
+
+    /// Create a new client with custom retry, timeout, and rate-limit configurations.
+    ///
+    /// The HTTP client is configured with TCP keep-alive and connection-pool idle
+    /// timeout to reduce connection churn under sustained load.
+    pub fn with_full_config(
+        is_mainnet: bool,
+        retry_config: RetryConfig,
+        timeout_config: TimeoutConfig,
+        rate_limit_config: RateLimitConfig,
+    ) -> Result<Self, HlError> {
+        retry_config.validate()?;
+        timeout_config.validate()?;
+        rate_limit_config.validate()?;
+
         let base_url = Self::base_url_for(is_mainnet).to_string();
         let http = reqwest::Client::builder()
             .timeout(timeout_config.request_timeout)
             .connect_timeout(timeout_config.connect_timeout)
+            .tcp_keepalive(Duration::from_secs(30))
+            .pool_idle_timeout(Duration::from_secs(90))
             .build()
-            .map_err(|e| HlError::Http(format!("Failed to build HTTP client: {e}")))?;
+            .map_err(|e| HlError::Http {
+                message: format!("Failed to build HTTP client: {e}"),
+                source: Some(Box::new(e)),
+            })?;
+        let rate_limiter = RateLimiter::from_config(&rate_limit_config);
         Ok(Self {
             http,
             base_url,
             is_mainnet,
             retry_config,
+            rate_limiter,
+            shutdown: CancellationToken::new(),
         })
+    }
+
+    /// Returns a clone of the shutdown [`CancellationToken`].
+    ///
+    /// Cancel this token to gracefully shut down the client: new requests will
+    /// be rejected and in-flight retry backoffs will be interrupted.
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.shutdown.clone()
     }
 
     /// Returns the base URL for the given network.
@@ -94,7 +138,7 @@ impl HyperliquidClient {
     ///
     /// The payload includes the action, signature, nonce, and optional vault address.
     /// Retries on transient failures (network errors, 5xx, 429) with exponential backoff.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self, action, signature), fields(endpoint = "exchange"))]
     pub async fn post_action(
         &self,
         action: serde_json::Value,
@@ -114,7 +158,7 @@ impl HyperliquidClient {
 
         if let Some(vault) = vault_address {
             let obj = payload.as_object_mut().ok_or_else(|| {
-                HlError::Serialization("payload is not a JSON object".to_string())
+                HlError::serialization("payload is not a JSON object")
             })?;
             obj.insert(
                 "vaultAddress".to_string(),
@@ -130,7 +174,7 @@ impl HyperliquidClient {
     ///
     /// Used for read-only queries like clearinghouseState, meta, l2Book, etc.
     /// Retries on transient failures (network errors, 5xx, 429) with exponential backoff.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self, request), fields(endpoint = "info"))]
     pub async fn post_info(
         &self,
         request: serde_json::Value,
@@ -154,6 +198,25 @@ impl HyperliquidClient {
         url: &str,
         payload: &serde_json::Value,
     ) -> Result<serde_json::Value, HlError> {
+        if self.shutdown.is_cancelled() {
+            return Err(HlError::Rejected {
+                reason: "client is shutting down".into(),
+            });
+        }
+
+        // Acquire concurrency permit (held for the duration of the request).
+        let _permit = match &self.rate_limiter.semaphore {
+            Some(sem) => Some(sem.acquire().await.map_err(|_| {
+                HlError::http("rate limiter semaphore closed")
+            })?),
+            None => None,
+        };
+
+        // Acquire a rate-limit token before entering the retry loop.
+        if let Some(bucket) = &self.rate_limiter.bucket {
+            bucket.acquire().await;
+        }
+
         let mut last_error: Option<HlError> = None;
 
         for attempt in 0..=self.retry_config.max_retries {
@@ -172,7 +235,14 @@ impl HyperliquidClient {
                     "Retrying HTTP request after transient failure"
                 );
 
-                tokio::time::sleep(delay).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(delay) => {},
+                    _ = self.shutdown.cancelled() => {
+                        return Err(HlError::Rejected {
+                            reason: "client shutdown during retry backoff".into(),
+                        });
+                    },
+                }
             }
 
             match self.post_once(url, payload).await {
@@ -187,7 +257,7 @@ impl HyperliquidClient {
 
         // Should not reach here, but return last error if it does.
         Err(last_error
-            .unwrap_or_else(|| HlError::Http("Retry loop exhausted without error".into())))
+            .unwrap_or_else(|| HlError::http("Retry loop exhausted without error")))
     }
 
     /// Internal: perform a single POST request without retry.
@@ -204,9 +274,15 @@ impl HyperliquidClient {
             .await
             .map_err(|e| {
                 if e.is_timeout() {
-                    HlError::Timeout(e.to_string())
+                    HlError::Timeout {
+                        message: e.to_string(),
+                        source: Some(Box::new(e)),
+                    }
                 } else {
-                    HlError::Http(e.to_string())
+                    HlError::Http {
+                        message: e.to_string(),
+                        source: Some(Box::new(e)),
+                    }
                 }
             })?;
 
@@ -236,7 +312,10 @@ impl HyperliquidClient {
         let body: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| HlError::Http(format!("Failed to parse response: {}", e)))?;
+            .map_err(|e| HlError::Serialization {
+                message: format!("Failed to parse response: {}", e),
+                source: Some(Box::new(e)),
+            })?;
 
         if !status.is_success() {
             return Err(HlError::Api {
@@ -350,5 +429,19 @@ mod tests {
         let a = HyperliquidClient::generate_cloid();
         let b = HyperliquidClient::generate_cloid();
         assert_ne!(a, b, "two generated cloids should be unique");
+    }
+
+    #[test]
+    fn shutdown_token_is_not_cancelled_by_default() {
+        let client = HyperliquidClient::testnet().unwrap();
+        assert!(!client.shutdown_token().is_cancelled());
+    }
+
+    #[test]
+    fn shutdown_token_can_be_cancelled() {
+        let client = HyperliquidClient::testnet().unwrap();
+        let token = client.shutdown_token();
+        token.cancel();
+        assert!(token.is_cancelled());
     }
 }

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// An OHLCV candlestick bar from Hyperliquid.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct HlCandle {
     /// Candle open time in milliseconds since the UNIX epoch.
     pub timestamp: u64,
@@ -16,6 +17,27 @@ pub struct HlCandle {
     pub close: Decimal,
     /// Trade volume during the interval.
     pub volume: Decimal,
+}
+
+impl HlCandle {
+    /// Creates a new `HlCandle`.
+    pub fn new(
+        timestamp: u64,
+        open: Decimal,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        volume: Decimal,
+    ) -> Self {
+        Self {
+            timestamp,
+            open,
+            high,
+            low,
+            close,
+            volume,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -124,6 +124,7 @@ impl fmt::Display for OrderStatus {
 /// Wire format for an order sent to the Hyperliquid exchange.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct OrderWire {
     /// Asset index (perp index or spot index with offset).
     pub asset: u32,

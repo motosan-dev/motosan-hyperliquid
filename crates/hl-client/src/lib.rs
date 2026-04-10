@@ -7,6 +7,7 @@
 //! for [`HyperliquidWs`] WebSocket support with auto-reconnect.
 
 pub mod client;
+pub mod rate_limit;
 pub mod retry;
 pub mod transport;
 
@@ -14,6 +15,7 @@ pub mod transport;
 pub mod ws;
 
 pub use client::HyperliquidClient;
+pub use rate_limit::RateLimitConfig;
 pub use retry::{RetryConfig, TimeoutConfig};
 pub use transport::HttpTransport;
 
