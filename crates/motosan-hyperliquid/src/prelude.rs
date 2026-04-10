@@ -7,8 +7,10 @@
 // -- Types (always available) ------------------------------------------------
 
 pub use hl_types::{
-    Decimal, HlAccountState, HlAssetInfo, HlCandle, HlError, HlFill, HlFundingRate, HlOrderbook,
-    HlPosition, OrderWire, OrderWireBuilder, Side, Signature,
+    Decimal, HlAccountState, HlActionResponse, HlAssetInfo, HlCandle, HlError, HlFill,
+    HlFundingRate, HlOrderbook, HlPosition, OrderWire, OrderWireBuilder, Side, Signature,
+    CancelByCloidRequest, CancelRequest, ModifyRequest,
+    OrderStatus, PositionSide, Tif, Tpsl, normalize_coin,
 };
 
 // -- Client (always available) -----------------------------------------------
@@ -38,4 +40,4 @@ pub use hl_signing::{sign_l1_action, sign_user_signed_action, PrivateKeySigner, 
 // -- WebSocket ---------------------------------------------------------------
 
 #[cfg(feature = "ws")]
-pub use hl_client::{HyperliquidWs, WsConfig};
+pub use hl_client::{HyperliquidWs, Subscription, WsConfig, WsMessage};
