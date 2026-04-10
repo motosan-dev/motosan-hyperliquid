@@ -83,6 +83,66 @@ impl OrderExecutor {
             .map_err(|e| HlError::Parse(format!("usdc_transfer response: {e}")))
     }
 
+    /// Withdraw USDC from Hyperliquid to an EVM address.
+    ///
+    /// Uses EIP-712 user-signed-action signing (Withdraw3).
+    #[tracing::instrument(skip(self))]
+    pub async fn withdraw(
+        &self,
+        destination: &str,
+        amount: Decimal,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        let chain = if self.client.is_mainnet() {
+            "Mainnet"
+        } else {
+            "Testnet"
+        };
+        let nonce = self.next_nonce();
+        let action = serde_json::json!({
+            "type": "withdraw3",
+            "hyperliquidChain": chain,
+            "signatureChainId": "0xa4b1",
+            "destination": destination,
+            "amount": amount.to_string(),
+            "time": nonce,
+        });
+
+        let types = vec![
+            hl_signing::EIP712Field::new("hyperliquidChain", "string"),
+            hl_signing::EIP712Field::new("destination", "string"),
+            hl_signing::EIP712Field::new("amount", "string"),
+            hl_signing::EIP712Field::new("time", "uint64"),
+        ];
+
+        let signature = hl_signing::sign_user_signed_action(
+            self.signer.as_ref(),
+            &self.address,
+            &action,
+            &types,
+            "HyperliquidTransaction:Withdraw",
+            self.client.is_mainnet(),
+        )?;
+
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault)
+            .await?;
+
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        if api_status != "ok" {
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected withdraw3: {}", result),
+            });
+        }
+
+        serde_json::from_value(result)
+            .map_err(|e| HlError::Parse(format!("withdraw response: {e}")))
+    }
+
     /// Send spot tokens to another address on the Hyperliquid L1.
     ///
     /// The `token` parameter uses the format `"<name>:<id>"` (e.g. `"PURR:0x..."`)
