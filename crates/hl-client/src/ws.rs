@@ -24,17 +24,29 @@ type WsStream =
 #[serde(tag = "type", rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum Subscription {
+    /// Subscribe to all mid-prices.
     AllMids,
+    /// Subscribe to L2 orderbook updates for a coin.
     L2Book { coin: String },
+    /// Subscribe to trades for a coin.
     Trades { coin: String },
+    /// Subscribe to candle (OHLCV) updates for a coin and interval.
     Candle { coin: String, interval: String },
+    /// Subscribe to best bid/offer updates for a coin.
     Bbo { coin: String },
+    /// Subscribe to order updates for a user.
     OrderUpdates { user: String },
+    /// Subscribe to all user events.
     UserEvents { user: String },
+    /// Subscribe to user fill events.
     UserFills { user: String },
+    /// Subscribe to user funding events.
     UserFundings { user: String },
+    /// Subscribe to user non-funding ledger updates.
     UserNonFundingLedgerUpdates { user: String },
+    /// Subscribe to notifications for a user.
     Notification { user: String },
+    /// Subscribe to web data v2 for a user.
     WebData2 { user: String },
 }
 
@@ -115,12 +127,17 @@ pub enum WsMessage {
     UserFills(UserFillsData),
     UserFundings(UserFundingsData),
     SubscriptionResponse,
+    Pong,
     Unknown(serde_json::Value),
 }
 
 impl WsMessage {
     /// Parse a raw JSON value into a typed [`WsMessage`].
     pub fn parse(value: serde_json::Value) -> Self {
+        if value.get("method").and_then(|m| m.as_str()) == Some("pong") {
+            return WsMessage::Pong;
+        }
+
         let channel = value.get("channel").and_then(|c| c.as_str()).unwrap_or("");
         let data = value
             .get("data")
@@ -140,14 +157,16 @@ impl WsMessage {
                 levels: data.get("levels").cloned().unwrap_or_default(),
                 time: data.get("time").and_then(|t| t.as_u64()).unwrap_or(0),
             }),
-            "trades" => WsMessage::Trades(TradesData {
-                coin: data
-                    .get("coin")
+            "trades" => {
+                let trades = data.as_array().cloned().unwrap_or_default();
+                let coin = trades
+                    .first()
+                    .and_then(|t| t.get("coin"))
                     .and_then(|c| c.as_str())
                     .unwrap_or("")
-                    .into(),
-                trades: data.as_array().cloned().unwrap_or_default(),
-            }),
+                    .to_string();
+                WsMessage::Trades(TradesData { coin, trades })
+            }
             "candle" => WsMessage::Candle(CandleData {
                 coin: data
                     .get("s")
@@ -210,6 +229,7 @@ impl WsMessage {
                 funding: data,
             }),
             "subscriptionResponse" => WsMessage::SubscriptionResponse,
+            "pong" => WsMessage::Pong,
             _ => WsMessage::Unknown(value),
         }
     }
@@ -886,5 +906,32 @@ mod tests {
     fn parse_malformed_returns_unknown() {
         let raw = serde_json::json!("just a string");
         assert!(matches!(WsMessage::parse(raw), WsMessage::Unknown(_)));
+    }
+
+    #[test]
+    fn parse_all_mids_message() {
+        let raw = serde_json::json!({
+            "channel": "allMids",
+            "data": {"mids": {"BTC": "90000", "ETH": "3000"}}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::AllMids(data) => {
+                assert!(data.mids.get("BTC").is_some());
+            }
+            other => panic!("expected AllMids, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_pong_message() {
+        let raw = serde_json::json!({"channel": "pong"});
+        assert!(matches!(WsMessage::parse(raw), WsMessage::Pong));
+    }
+
+    #[test]
+    fn parse_pong_method_message() {
+        let raw = serde_json::json!({"method": "pong"});
+        assert!(matches!(WsMessage::parse(raw), WsMessage::Pong));
     }
 }
