@@ -3,6 +3,11 @@ name = "hl-signing"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Hyperliquid EIP-712 signing — Signer trait, PrivateKeySigner, action hashing"
 
 [features]
