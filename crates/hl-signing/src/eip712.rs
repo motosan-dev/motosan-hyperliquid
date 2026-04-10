@@ -131,7 +131,7 @@ fn hl_signature_to_signature(hl: &motosan_wallet_core::HlSignature) -> Signature
 // Tests
 // ============================================================
 
-#[cfg(test)]
+#[cfg(all(test, feature = "k256-signer"))]
 mod tests {
     use super::*;
 
