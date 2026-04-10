@@ -63,13 +63,13 @@ pub enum Subscription {
 }
 
 /// Data for `allMids` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AllMidsData {
     pub mids: serde_json::Value,
 }
 
 /// Data for `l2Book` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct L2BookData {
     pub coin: String,
     pub levels: serde_json::Value,
@@ -77,28 +77,28 @@ pub struct L2BookData {
 }
 
 /// Data for `trades` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TradesData {
     pub coin: String,
     pub trades: Vec<serde_json::Value>,
 }
 
 /// Data for `candle` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CandleData {
     pub coin: String,
     pub candle: serde_json::Value,
 }
 
 /// Data for `bbo` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BboData {
     pub coin: String,
     pub data: serde_json::Value,
 }
 
 /// Data for a single order update.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderUpdateData {
     pub order: serde_json::Value,
     pub status: String,
@@ -106,62 +106,62 @@ pub struct OrderUpdateData {
 }
 
 /// Data for `user` (user events) channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserEventsData {
     pub events: Vec<serde_json::Value>,
 }
 
 /// Data for `userFills` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserFillsData {
     pub user: String,
     pub fills: Vec<serde_json::Value>,
 }
 
 /// Data for `userFundings` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserFundingsData {
     pub user: String,
     pub funding: serde_json::Value,
 }
 
 /// Data for `webData3` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WebData3Data {
     pub user: String,
     pub data: serde_json::Value,
 }
 
 /// Data for `clearinghouseState` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClearinghouseStateData {
     pub user: String,
     pub data: serde_json::Value,
 }
 
 /// Data for `activeAssetCtx` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActiveAssetCtxData {
     pub coin: String,
     pub ctx: serde_json::Value,
 }
 
 /// Data for `activeAssetData` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActiveAssetDataMsg {
     pub coin: String,
     pub data: serde_json::Value,
 }
 
 /// Data for `userTwapHistory` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserTwapHistoryData {
     pub user: String,
     pub history: Vec<serde_json::Value>,
 }
 
 /// Data for `userTwapSliceFills` channel messages.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UserTwapSliceFillsData {
     pub user: String,
     pub fills: Vec<serde_json::Value>,
