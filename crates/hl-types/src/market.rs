@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// Level-2 orderbook snapshot.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HlOrderbook {
     /// Coin/asset symbol.
     pub coin: String,
@@ -15,7 +15,7 @@ pub struct HlOrderbook {
 }
 
 /// Static metadata for an asset listed on Hyperliquid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlAssetInfo {
     /// Asset symbol (e.g. "BTC").
@@ -31,7 +31,7 @@ pub struct HlAssetInfo {
 }
 
 /// Current funding rate for a perpetual.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlFundingRate {
     /// Coin/asset symbol.

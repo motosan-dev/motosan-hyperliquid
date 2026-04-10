@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 /// A position held on Hyperliquid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlPosition {
     /// The coin/asset symbol.
@@ -22,7 +22,7 @@ pub struct HlPosition {
 }
 
 /// A trade fill on Hyperliquid.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlFill {
     /// The coin/asset symbol.
@@ -42,7 +42,7 @@ pub struct HlFill {
 }
 
 /// Snapshot of an account's state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlAccountState {
     /// Account equity.
@@ -57,7 +57,7 @@ pub struct HlAccountState {
 ///
 /// Returned by the `vaultSummaries` info endpoint. Fields that the API may
 /// add in the future are captured in `extra`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlVaultSummary {
     /// On-chain vault address.
@@ -81,7 +81,7 @@ pub struct HlVaultSummary {
 /// Detailed information about a specific vault.
 ///
 /// Returned by the `vaultDetails` info endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlVaultDetails {
     /// Vault name.
@@ -105,7 +105,7 @@ pub struct HlVaultDetails {
 /// An extra (sub-)agent approval entry.
 ///
 /// Returned by the `extraAgents` info endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HlExtraAgent {
     /// Address of the approved agent.
