@@ -162,7 +162,7 @@ impl OrderExecutor {
     /// Normalize a symbol string and look up its asset index in the meta cache.
     pub(crate) fn resolve_asset(&self, symbol: &str) -> Result<u32, HlError> {
         let coin = normalize_symbol(symbol);
-        self.meta_cache.asset_index(&coin).ok_or_else(|| {
+        self.meta_cache.asset_index_normalized(&coin).ok_or_else(|| {
             HlError::Parse(format!("Asset '{}' not found in exchange universe", symbol))
         })
     }
