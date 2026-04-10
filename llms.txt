@@ -1,0 +1,246 @@
+# motosan-hyperliquid
+
+> Modular Rust SDK for the Hyperliquid L1 exchange -- market data, account queries, EIP-712 signing, and order execution.
+
+- Rust 0.1.0
+- GitHub: https://github.com/motosan-dev/motosan-hyperliquid
+- crates.io: (not yet published)
+
+## Install
+
+```toml
+# Cargo.toml — pick the crates you need
+[dependencies]
+hl-client  = { version = "0.1.0", features = [] }  # HTTP + optional WebSocket
+hl-types   = "0.1.0"                                # shared domain types
+hl-market  = "0.1.0"                                # market data queries
+hl-account = "0.1.0"                                # account state queries
+hl-signing = "0.1.0"                                # EIP-712 signing
+hl-executor = "0.1.0"                               # order execution
+```
+
+Enable WebSocket support on `hl-client`:
+
+```toml
+hl-client = { version = "0.1.0", features = ["ws"] }
+```
+
+## Crate Map
+
+| Crate | Description |
+|-------|-------------|
+| `hl-types` | Shared domain types -- orders, positions, candles, errors, signatures. No network deps. |
+| `hl-signing` | EIP-712 signing via `Signer` trait, `PrivateKeySigner` impl |
+| `hl-client` | HTTP client with retry, rate-limit handling, optional WebSocket (`ws` feature) |
+| `hl-market` | Market data -- candles, orderbook, funding rates, asset metadata |
+| `hl-account` | Account state -- positions, fills, vaults, agent approvals |
+| `hl-executor` | Order execution -- place/cancel orders, trigger orders, position reconciliation |
+
+## Architecture
+
+```
+hl-types          (no dependencies -- pure data types)
+    |
+hl-signing        (depends on hl-types)
+    |
+hl-client         (depends on hl-types)
+   / \
+hl-market  hl-account   (depend on hl-client + hl-types)
+       \   /
+    hl-executor          (depends on hl-client + hl-signing + hl-types)
+```
+
+## Client Configuration
+
+```rust
+use hl_client::{HyperliquidClient, RetryConfig, TimeoutConfig};
+use std::time::Duration;
+
+// Quick start
+let client = HyperliquidClient::mainnet()?;    // mainnet
+let client = HyperliquidClient::testnet()?;    // testnet
+
+// Custom config
+let client = HyperliquidClient::with_config(
+    true, // is_mainnet
+    RetryConfig { max_retries: 5, base_delay_ms: 1000, backoff_factor: 2 },
+    TimeoutConfig {
+        request_timeout: Duration::from_secs(60),
+        connect_timeout: Duration::from_secs(15),
+    },
+)?;
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `is_mainnet` | `bool` | -- | Target mainnet or testnet |
+| `retry_config.max_retries` | `u32` | `3` | Maximum retry attempts |
+| `retry_config.base_delay_ms` | `u64` | `500` | Base delay before first retry |
+| `retry_config.backoff_factor` | `u32` | `2` | Exponential backoff multiplier |
+| `timeout_config.request_timeout` | `Duration` | `30s` | HTTP request timeout |
+| `timeout_config.connect_timeout` | `Duration` | `10s` | TCP connection timeout |
+
+## Market Data
+
+```rust
+use hl_client::HyperliquidClient;
+use hl_market::MarketData;
+
+let client = HyperliquidClient::mainnet()?;
+let market = MarketData::new(client);
+
+let book = market.orderbook("BTC").await?;
+let mid = market.mid_price("BTC").await?;
+let candles = market.candles("ETH", "1h", 10).await?;
+let rates = market.funding_rates().await?;
+```
+
+## Account Queries
+
+```rust
+use hl_client::HyperliquidClient;
+use hl_account::Account;
+
+let client = HyperliquidClient::mainnet()?;
+let account = Account::new(client);
+
+let state = account.state("0xYourAddress").await?;
+let fills = account.fills("0xYourAddress").await?;
+```
+
+## Order Execution
+
+```rust
+use hl_client::HyperliquidClient;
+use hl_signing::PrivateKeySigner;
+use hl_executor::OrderExecutor;
+use hl_types::{OrderWire, OrderTypeWire, LimitOrderType};
+
+let client = HyperliquidClient::mainnet()?;
+let signer = PrivateKeySigner::from_hex("0xYourPrivateKey")?;
+let address = signer.address().to_string();
+
+let executor = OrderExecutor::new(client, Box::new(signer), address).await?;
+
+let order = OrderWire {
+    asset: 0,
+    is_buy: true,
+    limit_px: "90000.0".to_string(),
+    sz: "0.001".to_string(),
+    reduce_only: false,
+    order_type: OrderTypeWire {
+        limit: Some(LimitOrderType { tif: "Gtc".to_string() }),
+        trigger: None,
+    },
+    cloid: Some(HyperliquidClient::generate_cloid()),
+};
+
+let response = executor.place_order(order, None).await?;
+```
+
+## WebSocket (opt-in)
+
+```toml
+hl-client = { version = "0.1.0", features = ["ws"] }
+```
+
+```rust
+use hl_client::HyperliquidWs;
+
+let mut ws = HyperliquidWs::mainnet();
+ws.connect().await?;
+ws.subscribe(serde_json::json!({"type": "l2Book", "coin": "BTC"})).await?;
+
+while let Some(msg) = ws.next_message().await {
+    println!("{:?}", msg?);
+}
+```
+
+## Error Handling
+
+All crates use `hl_types::HlError`:
+
+| Variant | Retryable | Description |
+|---------|-----------|-------------|
+| `Http` | Yes | Network / connection failure |
+| `RateLimited` | Yes | HTTP 429 with `retry_after_ms` |
+| `Api` | 5xx only | Non-success HTTP status |
+| `Signing` | No | EIP-712 signing failure |
+| `Serialization` | No | JSON / msgpack encoding error |
+| `InvalidAddress` | No | Malformed Ethereum address |
+| `Parse` | No | Unexpected response format |
+
+```rust
+use hl_types::HlError;
+
+match result {
+    Err(e) if e.is_retryable() => { /* auto-retried by client */ },
+    Err(HlError::Signing(msg)) => eprintln!("Signing failed: {msg}"),
+    Err(e) => eprintln!("Error: {e}"),
+    Ok(v) => { /* success */ },
+}
+```
+
+---
+
+## Release
+
+Rust workspace — all 6 crates share one version and are released together.
+
+### Tag Convention
+
+| Tag format | Example | Registry |
+|------------|---------|----------|
+| `rust-vX.Y.Z` | `rust-v0.1.0` | crates.io |
+
+### Release Steps
+
+```bash
+# 1. Bump version
+#    Cargo.toml (workspace) → version = "X.Y.Z"
+
+# 2. Update CHANGELOG
+#    CHANGELOG.md → ## [X.Y.Z] - YYYY-MM-DD
+
+# 3. Update version references in:
+#    - README.md — install section
+#    - llms.txt — header version, Install section
+#    - skills/motosan-hyperliquid/SKILL.md — header version, Install section
+
+# 4. Commit
+git add Cargo.toml CHANGELOG.md README.md llms.txt skills/motosan-hyperliquid/SKILL.md
+git commit -m "chore: release rust-vX.Y.Z"
+
+# 5. Tag + push (triggers publish-rust.yml → crates.io)
+git tag -a rust-vX.Y.Z -m "rust-vX.Y.Z — summary"
+git push origin main rust-vX.Y.Z
+```
+
+### CI Pipeline
+
+Tag push triggers GitHub Actions:
+- **publish-rust.yml**: `cargo fmt --check` → `cargo clippy` → `cargo test --all-features` → `cargo publish -p hl-types` → … → `cargo publish -p hl-executor` (secret: `CARGO_REGISTRY_TOKEN`)
+
+Supports `workflow_dispatch` for manual trigger.
+
+### Publish Order
+
+Crates must be published in dependency order:
+
+1. `hl-types`
+2. `hl-signing`
+3. `hl-client`
+4. `hl-market`
+5. `hl-account`
+6. `hl-executor`
+
+### Emergency Manual Publish
+
+```bash
+cargo publish -p hl-types && \
+cargo publish -p hl-signing && \
+cargo publish -p hl-client && \
+cargo publish -p hl-market && \
+cargo publish -p hl-account && \
+cargo publish -p hl-executor
+```
