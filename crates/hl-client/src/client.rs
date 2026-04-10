@@ -77,6 +77,10 @@ impl HyperliquidClient {
         timeout_config: TimeoutConfig,
         rate_limit_config: RateLimitConfig,
     ) -> Result<Self, HlError> {
+        retry_config.validate()?;
+        timeout_config.validate()?;
+        rate_limit_config.validate()?;
+
         let base_url = Self::base_url_for(is_mainnet).to_string();
         let http = reqwest::Client::builder()
             .timeout(timeout_config.request_timeout)

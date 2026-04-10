@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use hl_types::HlError;
+
 /// User-facing rate-limit configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RateLimitConfig {
@@ -14,6 +16,23 @@ pub struct RateLimitConfig {
     pub max_rps: Option<u32>,
     /// Maximum concurrent in-flight requests. `None` disables the semaphore.
     pub max_concurrent: Option<u32>,
+}
+
+impl RateLimitConfig {
+    /// Validate that the rate-limit configuration has sensible values.
+    pub fn validate(&self) -> Result<(), HlError> {
+        if let Some(rps) = self.max_rps {
+            if rps == 0 {
+                return Err(HlError::Config("max_rps must be > 0 or None".into()));
+            }
+        }
+        if let Some(n) = self.max_concurrent {
+            if n == 0 {
+                return Err(HlError::Config("max_concurrent must be > 0 or None".into()));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for RateLimitConfig {
@@ -134,5 +153,28 @@ mod tests {
         let limiter = RateLimiter::from_config(&config);
         assert!(limiter.bucket.is_none());
         assert!(limiter.semaphore.is_none());
+    }
+
+    #[test]
+    fn validate_default_rate_limit_ok() {
+        assert!(RateLimitConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_zero_rps_fails() {
+        let config = RateLimitConfig { max_rps: Some(0), max_concurrent: None };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_zero_concurrent_fails() {
+        let config = RateLimitConfig { max_rps: None, max_concurrent: Some(0) };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_unlimited_ok() {
+        let config = RateLimitConfig { max_rps: None, max_concurrent: None };
+        assert!(config.validate().is_ok());
     }
 }
