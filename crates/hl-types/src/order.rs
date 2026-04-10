@@ -400,6 +400,51 @@ pub struct TriggerOrderType {
     pub tpsl: Tpsl,
 }
 
+/// Request to cancel an order by asset index and server-assigned order ID.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CancelRequest {
+    pub asset: u32,
+    pub oid: u64,
+}
+
+impl CancelRequest {
+    pub fn new(asset: u32, oid: u64) -> Self {
+        Self { asset, oid }
+    }
+}
+
+/// Request to cancel an order by asset index and client order ID.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CancelByCloidRequest {
+    pub asset: u32,
+    pub cloid: String,
+}
+
+impl CancelByCloidRequest {
+    pub fn new(asset: u32, cloid: impl Into<String>) -> Self {
+        Self {
+            asset,
+            cloid: cloid.into(),
+        }
+    }
+}
+
+/// Request to amend an existing order in-place (atomic modification).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ModifyRequest {
+    pub oid: u64,
+    pub order: OrderWire,
+}
+
+impl ModifyRequest {
+    pub fn new(oid: u64, order: OrderWire) -> Self {
+        Self { oid, order }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
