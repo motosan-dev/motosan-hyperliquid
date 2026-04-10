@@ -90,17 +90,6 @@ impl OrderExecutor {
 
         let result = self.send_signed_action(action, vault).await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected order: {}", result),
-            });
-        }
-
         let (order_id, fill_price, fill_size) =
             parse_order_response(&result, fallback_price, fallback_size)?;
 
@@ -169,17 +158,6 @@ impl OrderExecutor {
 
         let result = self.send_signed_action(action, vault).await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Trigger order rejected: {}", result),
-            });
-        }
-
         let (order_id, fill_price, fill_size) =
             parse_order_response(&result, trigger_price, size)?;
 
@@ -227,16 +205,7 @@ impl OrderExecutor {
             "isDeposit": true,
             "usd": amount.to_string(),
         });
-        let nonce = self.next_nonce();
-        let sig = hl_signing::sign_l1_action(
-            self.signer.as_ref(),
-            &self.address,
-            &action,
-            nonce,
-            self.client.is_mainnet(),
-            None,
-        )?;
-        let resp = self.client.post_action(action, &sig, nonce, None).await?;
+        let resp = self.send_signed_action(action, None).await?;
         serde_json::from_value(resp)
             .map_err(|e| HlError::Parse(format!("transfer_to_vault response: {e}")))
     }
@@ -270,17 +239,6 @@ impl OrderExecutor {
         });
 
         let result = self.send_signed_action(action, vault).await?;
-
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected bulk order: {}", result),
-            });
-        }
 
         let parsed = parse_bulk_order_response_with_fallbacks(&result, &fallbacks)?;
 
@@ -410,8 +368,26 @@ impl OrderExecutor {
             }
         };
 
-        self.market_open(symbol, close_side, close_size, slippage, vault)
-            .await
+        let asset_idx = self.resolve_asset(symbol)?;
+        let mid = extract_mid_price(&self.client, &coin).await?;
+
+        let slippage = slippage.unwrap_or_else(|| Decimal::new(5, 2));
+        let limit_price = if close_side.is_buy() {
+            mid * (Decimal::ONE + slippage)
+        } else {
+            mid * (Decimal::ONE - slippage)
+        };
+
+        let order = if close_side.is_buy() {
+            OrderWire::limit_buy(asset_idx, limit_price.to_string(), close_size.to_string())
+        } else {
+            OrderWire::limit_sell(asset_idx, limit_price.to_string(), close_size.to_string())
+        }
+        .tif(Tif::Ioc)
+        .reduce_only(true)
+        .build();
+
+        self.place_order(order, vault).await
     }
 }
 

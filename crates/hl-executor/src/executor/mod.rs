@@ -139,9 +139,22 @@ impl OrderExecutor {
             self.client.is_mainnet(),
             vault,
         )?;
-        self.client
+        let result = self
+            .client
             .post_action(action, &signature, nonce, vault)
-            .await
+            .await?;
+
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        if api_status != "ok" {
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected action: {}", result),
+            });
+        }
+
+        Ok(result)
     }
 
     /// Normalize a symbol string and look up its asset index in the meta cache.

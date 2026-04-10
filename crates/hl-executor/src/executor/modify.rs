@@ -30,17 +30,6 @@ impl OrderExecutor {
 
         let result = self.send_signed_action(action, vault).await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected modify order: {}", result),
-            });
-        }
-
         let (order_id, fill_price, fill_size) =
             parse_order_response(&result, fallback_price, fallback_size)?;
         let status = determine_status(fill_size, fallback_size, &order_id);
@@ -87,17 +76,6 @@ impl OrderExecutor {
         });
 
         let result = self.send_signed_action(action, vault).await?;
-
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected bulk modify: {}", result),
-            });
-        }
 
         let parsed = parse_bulk_order_response_with_fallbacks(&result, &fallbacks)?;
 

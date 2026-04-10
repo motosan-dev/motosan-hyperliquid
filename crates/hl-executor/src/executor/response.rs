@@ -4,6 +4,7 @@ use rust_decimal::Decimal;
 use hl_types::HlError;
 
 /// Parsed result from a single status entry.
+#[derive(Debug)]
 pub(crate) struct ParsedStatus {
     pub oid: String,
     /// Average fill price (only present for filled orders).
@@ -61,6 +62,10 @@ fn parse_single_status(entry: &serde_json::Value) -> Result<ParsedStatus, HlErro
             avg_px: None,
             total_sz: None,
             is_resting: true,
+        })
+    } else if let Some(error) = entry.get("error") {
+        Err(HlError::Rejected {
+            reason: error.as_str().unwrap_or("unknown error").to_string(),
         })
     } else {
         Err(HlError::Parse(format!(
@@ -171,4 +176,128 @@ pub(crate) fn parse_bulk_order_response_with_fallbacks(
         out.push(resolve_status(parsed, fp, fs));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn parse_filled_order() {
+        let result = serde_json::json!({
+            "status": "ok",
+            "response": {
+                "data": {
+                    "statuses": [{
+                        "filled": {
+                            "oid": 12345,
+                            "avgPx": "90100.5",
+                            "totalSz": "0.5"
+                        }
+                    }]
+                }
+            }
+        });
+        let (oid, avg_px, total_sz) =
+            parse_order_response(&result, Decimal::ZERO, Decimal::ONE).unwrap();
+        assert_eq!(oid, "12345");
+        assert_eq!(avg_px, Decimal::from_str("90100.5").unwrap());
+        assert_eq!(total_sz, Decimal::from_str("0.5").unwrap());
+    }
+
+    #[test]
+    fn parse_resting_order() {
+        let result = serde_json::json!({
+            "status": "ok",
+            "response": {
+                "data": {
+                    "statuses": [{
+                        "resting": {
+                            "oid": 99999
+                        }
+                    }]
+                }
+            }
+        });
+        let fallback_price = Decimal::from_str("50000.0").unwrap();
+        let (oid, price, fill_sz) =
+            parse_order_response(&result, fallback_price, Decimal::ONE).unwrap();
+        assert_eq!(oid, "99999");
+        assert_eq!(price, fallback_price);
+        assert_eq!(fill_sz, Decimal::ZERO);
+    }
+
+    #[test]
+    fn parse_error_status_returns_rejected() {
+        let entry = serde_json::json!({
+            "error": "Insufficient margin"
+        });
+        let err = parse_single_status(&entry).unwrap_err();
+        match err {
+            HlError::Rejected { reason } => {
+                assert_eq!(reason, "Insufficient margin");
+            }
+            other => panic!("expected HlError::Rejected, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_empty_statuses_returns_error() {
+        let result = serde_json::json!({
+            "status": "ok",
+            "response": {
+                "data": {
+                    "statuses": []
+                }
+            }
+        });
+        let err = parse_order_response(&result, Decimal::ZERO, Decimal::ONE).unwrap_err();
+        assert!(
+            matches!(err, HlError::Parse(_)),
+            "expected Parse error, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn parse_bulk_mixed_statuses() {
+        let result = serde_json::json!({
+            "status": "ok",
+            "response": {
+                "data": {
+                    "statuses": [
+                        {
+                            "filled": {
+                                "oid": 100,
+                                "avgPx": "3000.0",
+                                "totalSz": "1.0"
+                            }
+                        },
+                        {
+                            "resting": {
+                                "oid": 200
+                            }
+                        }
+                    ]
+                }
+            }
+        });
+        let fallbacks = vec![
+            (Decimal::from_str("3000.0").unwrap(), Decimal::from_str("1.0").unwrap()),
+            (Decimal::from_str("2900.0").unwrap(), Decimal::from_str("2.0").unwrap()),
+        ];
+        let parsed = parse_bulk_order_response_with_fallbacks(&result, &fallbacks).unwrap();
+        assert_eq!(parsed.len(), 2);
+
+        // First: filled
+        assert_eq!(parsed[0].0, "100");
+        assert_eq!(parsed[0].1, Decimal::from_str("3000.0").unwrap());
+        assert_eq!(parsed[0].2, Decimal::from_str("1.0").unwrap());
+
+        // Second: resting (uses fallback price, zero fill)
+        assert_eq!(parsed[1].0, "200");
+        assert_eq!(parsed[1].1, Decimal::from_str("2900.0").unwrap());
+        assert_eq!(parsed[1].2, Decimal::ZERO);
+    }
 }
