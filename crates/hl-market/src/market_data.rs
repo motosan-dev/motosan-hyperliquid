@@ -1,13 +1,12 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook, HlPerpDexStatus,
-    HlSpotAssetInfo, HlSpotMeta, HlTrade, TradeSide,
+    normalize_coin, parse_str_decimal, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook,
+    HlPerpDexStatus, HlSpotAssetInfo, HlSpotMeta, HlTrade, TradeSide,
 };
 
 /// Typed interface for Hyperliquid market data queries.
@@ -146,26 +145,6 @@ impl MarketData {
 // ---------------------------------------------------------------------------
 // Parsing helpers
 // ---------------------------------------------------------------------------
-
-/// Parse a JSON value that might be a string-encoded decimal or a number.
-///
-/// Returns an error if the value is missing, null, or not parseable as `Decimal`.
-fn parse_str_decimal(val: Option<&serde_json::Value>, field: &str) -> Result<Decimal, HlError> {
-    match val {
-        Some(serde_json::Value::String(s)) => Decimal::from_str(s)
-            .map_err(|_| parse_err(format!("cannot parse '{field}' value \"{s}\" as Decimal"))),
-        Some(serde_json::Value::Number(n)) => {
-            // Convert via the string representation to preserve precision
-            let s = n.to_string();
-            Decimal::from_str(&s)
-                .map_err(|_| parse_err(format!("cannot convert '{field}' number to Decimal")))
-        }
-        Some(v) => Err(parse_err(format!(
-            "unexpected type for '{field}': expected string or number, got {v}"
-        ))),
-        None => Err(parse_err(format!("missing field '{field}'"))),
-    }
-}
 
 /// Convenience constructor for a local parse error.
 fn parse_err(msg: impl Into<String>) -> HlError {
@@ -556,6 +535,8 @@ fn interval_to_ms(interval: &str) -> Result<u64, HlError> {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
