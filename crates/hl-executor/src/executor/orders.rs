@@ -413,4 +413,281 @@ mod tests {
         let limit = mid * (Decimal::ONE - slippage);
         assert_eq!(limit, Decimal::from(85500));
     }
+
+    // ── Mock-based integration tests ───────────────────────────
+
+    use async_trait::async_trait;
+    use hl_client::HttpTransport;
+    use hl_signing::PrivateKeySigner;
+    use hl_types::Signature;
+    use std::sync::{Arc, Mutex};
+
+    /// Mock transport that returns pre-queued responses in FIFO order.
+    struct MockTransport {
+        responses: Mutex<Vec<serde_json::Value>>,
+        is_mainnet: bool,
+    }
+
+    impl MockTransport {
+        fn new(responses: Vec<serde_json::Value>) -> Self {
+            Self {
+                responses: Mutex::new(responses),
+                is_mainnet: true,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for MockTransport {
+        async fn post_info(&self, _req: serde_json::Value) -> Result<serde_json::Value, HlError> {
+            let mut q = self.responses.lock().unwrap();
+            if q.is_empty() {
+                return Err(HlError::http("no mock responses"));
+            }
+            Ok(q.remove(0))
+        }
+
+        async fn post_action(
+            &self,
+            _action: serde_json::Value,
+            _sig: &Signature,
+            _nonce: u64,
+            _vault: Option<&str>,
+        ) -> Result<serde_json::Value, HlError> {
+            let mut q = self.responses.lock().unwrap();
+            if q.is_empty() {
+                return Err(HlError::http("no mock responses"));
+            }
+            Ok(q.remove(0))
+        }
+
+        fn is_mainnet(&self) -> bool {
+            self.is_mainnet
+        }
+    }
+
+    fn test_signer() -> Box<dyn hl_signing::Signer> {
+        Box::new(
+            PrivateKeySigner::from_hex(
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+            )
+            .unwrap(),
+        )
+    }
+
+    fn test_executor(responses: Vec<serde_json::Value>) -> OrderExecutor {
+        use crate::meta_cache::AssetMetaCache;
+        let mut name_to_idx = std::collections::HashMap::new();
+        name_to_idx.insert("BTC".to_string(), 0u32);
+        name_to_idx.insert("ETH".to_string(), 1u32);
+        let cache = AssetMetaCache::from_maps(name_to_idx, Default::default());
+        OrderExecutor::with_meta_cache(
+            Arc::new(MockTransport::new(responses)),
+            test_signer(),
+            "0x0000000000000000000000000000000000000001".to_string(),
+            cache,
+        )
+    }
+
+    /// Canned "ok" response with a single resting order status.
+    fn ok_resting_response(oid: u64) -> serde_json::Value {
+        serde_json::json!({
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [{"resting": {"oid": oid}}]
+                }
+            }
+        })
+    }
+
+    /// Canned "ok" response with a single filled order status.
+    fn ok_filled_response(oid: u64, avg_px: &str, total_sz: &str) -> serde_json::Value {
+        serde_json::json!({
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [{
+                        "filled": {
+                            "oid": oid,
+                            "avgPx": avg_px,
+                            "totalSz": total_sz
+                        }
+                    }]
+                }
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn place_order_resting() {
+        let executor = test_executor(vec![ok_resting_response(123)]);
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+
+        let resp = executor.place_order(order, None).await.unwrap();
+        assert_eq!(resp.order_id, "123");
+        assert_eq!(resp.status, OrderStatus::Open);
+        assert_eq!(resp.filled_size, Decimal::ZERO);
+        assert!(resp.filled_price.is_none());
+    }
+
+    #[tokio::test]
+    async fn place_order_filled() {
+        let executor = test_executor(vec![ok_filled_response(456, "90100.5", "1.0")]);
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+
+        let resp = executor.place_order(order, None).await.unwrap();
+        assert_eq!(resp.order_id, "456");
+        assert_eq!(resp.status, OrderStatus::Filled);
+        assert_eq!(
+            resp.filled_price,
+            Some(Decimal::from_str("90100.5").unwrap())
+        );
+        assert_eq!(resp.filled_size, Decimal::from_str("1.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn cancel_order_success() {
+        let canned = serde_json::json!({
+            "status": "ok",
+            "response": {
+                "type": "cancel",
+                "data": {
+                    "statuses": ["success"]
+                }
+            }
+        });
+        let executor = test_executor(vec![canned]);
+
+        let resp = executor.cancel_order(0, 123, None).await.unwrap();
+        assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn bulk_order_multiple() {
+        let canned = serde_json::json!({
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [
+                        {"resting": {"oid": 100}},
+                        {"filled": {"oid": 200, "avgPx": "3000.0", "totalSz": "2.0"}}
+                    ]
+                }
+            }
+        });
+        let executor = test_executor(vec![canned]);
+
+        let order1 = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        let order2 = OrderWire::limit_sell(1, Decimal::from(3000), Decimal::from(2))
+            .build()
+            .unwrap();
+
+        let resps = executor
+            .bulk_order(vec![order1, order2], None)
+            .await
+            .unwrap();
+        assert_eq!(resps.len(), 2);
+
+        assert_eq!(resps[0].order_id, "100");
+        assert_eq!(resps[0].status, OrderStatus::Open);
+        assert_eq!(resps[0].filled_size, Decimal::ZERO);
+
+        assert_eq!(resps[1].order_id, "200");
+        assert_eq!(resps[1].status, OrderStatus::Filled);
+        assert_eq!(resps[1].filled_size, Decimal::from_str("2.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn market_open_buy() {
+        // First response: l2Book (post_info) for mid-price extraction
+        let l2book = serde_json::json!({
+            "levels": [
+                [{"px": "89000.0", "sz": "1.0", "n": 1}],
+                [{"px": "91000.0", "sz": "1.0", "n": 1}]
+            ]
+        });
+        // Second response: order action (post_action) -> filled
+        let order_resp = ok_filled_response(789, "90500.0", "0.5");
+
+        let executor = test_executor(vec![l2book, order_resp]);
+
+        let resp = executor
+            .market_open(
+                "BTC",
+                Side::Buy,
+                Decimal::from_str("0.5").unwrap(),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.order_id, "789");
+        assert_eq!(resp.filled_size, Decimal::from_str("0.5").unwrap());
+    }
+
+    #[tokio::test]
+    async fn place_trigger_order_resting() {
+        let executor = test_executor(vec![ok_resting_response(555)]);
+
+        let resp = executor
+            .place_trigger_order(
+                "BTC",
+                Side::Sell,
+                Decimal::from(1),
+                Decimal::from(85000),
+                Tpsl::Sl,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.order_id, "555");
+        // Trigger orders rest until triggered, so fill_size is 0 -> Open
+        assert_eq!(resp.status, OrderStatus::Open);
+        assert_eq!(resp.filled_size, Decimal::ZERO);
+    }
+
+    #[tokio::test]
+    async fn error_response_produces_rejected() {
+        let canned = serde_json::json!({
+            "status": "err",
+            "response": "Insufficient margin"
+        });
+        let executor = test_executor(vec![canned]);
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+
+        let result = executor.place_order(order, None).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            HlError::Rejected { reason } => {
+                assert!(
+                    reason.contains("rejected"),
+                    "expected 'rejected' in reason, got: {}",
+                    reason
+                );
+            }
+            other => panic!("expected HlError::Rejected, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn bulk_order_empty_returns_empty() {
+        // No mock responses needed — empty input short-circuits before any HTTP call
+        let executor = test_executor(vec![]);
+        let resps = executor.bulk_order(vec![], None).await.unwrap();
+        assert!(resps.is_empty());
+    }
 }
