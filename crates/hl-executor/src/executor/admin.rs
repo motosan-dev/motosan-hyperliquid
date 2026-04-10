@@ -13,11 +13,7 @@ impl OrderExecutor {
         agent_name: Option<&str>,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() {
-            "Mainnet"
-        } else {
-            "Testnet"
-        };
+        let chain = self.chain_name();
         let nonce = self.next_nonce();
         let mut action = serde_json::json!({
             "type": "approveAgent",
@@ -118,11 +114,7 @@ impl OrderExecutor {
         max_fee_rate: &str,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() {
-            "Mainnet"
-        } else {
-            "Testnet"
-        };
+        let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "approveBuilderFee",
