@@ -4,7 +4,9 @@ use std::sync::Arc;
 use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
-use hl_types::{HlAccountState, HlError, HlFill, HlPosition};
+use hl_types::{
+    HlAccountState, HlError, HlExtraAgent, HlFill, HlPosition, HlVaultDetails, HlVaultSummary,
+};
 
 /// Typed interface for Hyperliquid account state queries.
 ///
@@ -51,12 +53,18 @@ impl Account {
     }
 
     /// Fetch vault summaries for an address.
-    pub async fn vault_summaries(&self, address: &str) -> Result<Vec<serde_json::Value>, HlError> {
+    pub async fn vault_summaries(&self, address: &str) -> Result<Vec<HlVaultSummary>, HlError> {
         let payload = serde_json::json!({ "type": "vaultSummaries", "user": address });
         let resp = self.client.post_info(payload).await?;
-        resp.as_array()
-            .cloned()
-            .ok_or_else(|| HlError::Parse("expected array for vaultSummaries".into()))
+        let arr = resp
+            .as_array()
+            .ok_or_else(|| HlError::Parse("expected array for vaultSummaries".into()))?;
+        arr.iter()
+            .map(|v| {
+                serde_json::from_value(v.clone())
+                    .map_err(|e| HlError::Parse(format!("vaultSummary: {e}")))
+            })
+            .collect()
     }
 
     /// Fetch details for a specific vault.
@@ -64,22 +72,29 @@ impl Account {
         &self,
         address: &str,
         vault: &str,
-    ) -> Result<serde_json::Value, HlError> {
+    ) -> Result<HlVaultDetails, HlError> {
         let payload = serde_json::json!({
             "type": "vaultDetails",
             "user": address,
             "vaultAddress": vault,
         });
-        self.client.post_info(payload).await
+        let resp = self.client.post_info(payload).await?;
+        serde_json::from_value(resp).map_err(|e| HlError::Parse(format!("vaultDetails: {e}")))
     }
 
     /// Fetch extra (sub-)agent approvals for an address.
-    pub async fn extra_agents(&self, address: &str) -> Result<Vec<serde_json::Value>, HlError> {
+    pub async fn extra_agents(&self, address: &str) -> Result<Vec<HlExtraAgent>, HlError> {
         let payload = serde_json::json!({ "type": "extraAgents", "user": address });
         let resp = self.client.post_info(payload).await?;
-        resp.as_array()
-            .cloned()
-            .ok_or_else(|| HlError::Parse("expected array for extraAgents".into()))
+        let arr = resp
+            .as_array()
+            .ok_or_else(|| HlError::Parse("expected array for extraAgents".into()))?;
+        arr.iter()
+            .map(|v| {
+                serde_json::from_value(v.clone())
+                    .map_err(|e| HlError::Parse(format!("extraAgent: {e}")))
+            })
+            .collect()
     }
 }
 
