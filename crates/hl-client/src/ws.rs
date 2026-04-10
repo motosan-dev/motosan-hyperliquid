@@ -1,6 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
 use hl_types::HlError;
 use rand::Rng;
+use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
 /// Mainnet WebSocket URL.
@@ -17,6 +18,222 @@ const RECONNECT_MAX_DELAY_MS: u64 = 30_000;
 
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Typed subscription for Hyperliquid WebSocket channels.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+#[non_exhaustive]
+pub enum Subscription {
+    /// Subscribe to all mid-prices.
+    AllMids,
+    /// Subscribe to L2 orderbook updates for a coin.
+    L2Book { coin: String },
+    /// Subscribe to trades for a coin.
+    Trades { coin: String },
+    /// Subscribe to candle (OHLCV) updates for a coin and interval.
+    Candle { coin: String, interval: String },
+    /// Subscribe to best bid/offer updates for a coin.
+    Bbo { coin: String },
+    /// Subscribe to order updates for a user.
+    OrderUpdates { user: String },
+    /// Subscribe to all user events.
+    UserEvents { user: String },
+    /// Subscribe to user fill events.
+    UserFills { user: String },
+    /// Subscribe to user funding events.
+    UserFundings { user: String },
+    /// Subscribe to user non-funding ledger updates.
+    UserNonFundingLedgerUpdates { user: String },
+    /// Subscribe to notifications for a user.
+    Notification { user: String },
+    /// Subscribe to web data v2 for a user.
+    WebData2 { user: String },
+}
+
+/// Data for `allMids` channel messages.
+#[derive(Debug, Clone)]
+pub struct AllMidsData {
+    pub mids: serde_json::Value,
+}
+
+/// Data for `l2Book` channel messages.
+#[derive(Debug, Clone)]
+pub struct L2BookData {
+    pub coin: String,
+    pub levels: serde_json::Value,
+    pub time: u64,
+}
+
+/// Data for `trades` channel messages.
+#[derive(Debug, Clone)]
+pub struct TradesData {
+    pub coin: String,
+    pub trades: Vec<serde_json::Value>,
+}
+
+/// Data for `candle` channel messages.
+#[derive(Debug, Clone)]
+pub struct CandleData {
+    pub coin: String,
+    pub candle: serde_json::Value,
+}
+
+/// Data for `bbo` channel messages.
+#[derive(Debug, Clone)]
+pub struct BboData {
+    pub coin: String,
+    pub data: serde_json::Value,
+}
+
+/// Data for a single order update.
+#[derive(Debug, Clone)]
+pub struct OrderUpdateData {
+    pub order: serde_json::Value,
+    pub status: String,
+    pub timestamp: u64,
+}
+
+/// Data for `user` (user events) channel messages.
+#[derive(Debug, Clone)]
+pub struct UserEventsData {
+    pub events: Vec<serde_json::Value>,
+}
+
+/// Data for `userFills` channel messages.
+#[derive(Debug, Clone)]
+pub struct UserFillsData {
+    pub user: String,
+    pub fills: Vec<serde_json::Value>,
+}
+
+/// Data for `userFundings` channel messages.
+#[derive(Debug, Clone)]
+pub struct UserFundingsData {
+    pub user: String,
+    pub funding: serde_json::Value,
+}
+
+/// Typed WebSocket message parsed from raw JSON.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum WsMessage {
+    AllMids(AllMidsData),
+    L2Book(L2BookData),
+    Trades(TradesData),
+    Candle(CandleData),
+    Bbo(BboData),
+    OrderUpdates(Vec<OrderUpdateData>),
+    UserEvents(UserEventsData),
+    UserFills(UserFillsData),
+    UserFundings(UserFundingsData),
+    SubscriptionResponse,
+    Pong,
+    Unknown(serde_json::Value),
+}
+
+impl WsMessage {
+    /// Parse a raw JSON value into a typed [`WsMessage`].
+    pub fn parse(value: serde_json::Value) -> Self {
+        if value.get("method").and_then(|m| m.as_str()) == Some("pong") {
+            return WsMessage::Pong;
+        }
+
+        let channel = value.get("channel").and_then(|c| c.as_str()).unwrap_or("");
+        let data = value
+            .get("data")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        match channel {
+            "allMids" => WsMessage::AllMids(AllMidsData {
+                mids: data.get("mids").cloned().unwrap_or(data.clone()),
+            }),
+            "l2Book" => WsMessage::L2Book(L2BookData {
+                coin: data
+                    .get("coin")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .into(),
+                levels: data.get("levels").cloned().unwrap_or_default(),
+                time: data.get("time").and_then(|t| t.as_u64()).unwrap_or(0),
+            }),
+            "trades" => {
+                let trades = data.as_array().cloned().unwrap_or_default();
+                let coin = trades
+                    .first()
+                    .and_then(|t| t.get("coin"))
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                WsMessage::Trades(TradesData { coin, trades })
+            }
+            "candle" => WsMessage::Candle(CandleData {
+                coin: data
+                    .get("s")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .into(),
+                candle: data,
+            }),
+            "bbo" => WsMessage::Bbo(BboData {
+                coin: data
+                    .get("coin")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .into(),
+                data,
+            }),
+            "orderUpdates" => {
+                let updates = data
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .map(|item| OrderUpdateData {
+                                order: item.get("order").cloned().unwrap_or_default(),
+                                status: item
+                                    .get("status")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or("")
+                                    .into(),
+                                timestamp: item
+                                    .get("statusTimestamp")
+                                    .and_then(|t| t.as_u64())
+                                    .unwrap_or(0),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                WsMessage::OrderUpdates(updates)
+            }
+            "user" => WsMessage::UserEvents(UserEventsData {
+                events: data.as_array().cloned().unwrap_or_default(),
+            }),
+            "userFills" => WsMessage::UserFills(UserFillsData {
+                user: data
+                    .get("user")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .into(),
+                fills: data
+                    .get("fills")
+                    .and_then(|f| f.as_array())
+                    .cloned()
+                    .unwrap_or_default(),
+            }),
+            "userFundings" => WsMessage::UserFundings(UserFundingsData {
+                user: data
+                    .get("user")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .into(),
+                funding: data,
+            }),
+            "subscriptionResponse" => WsMessage::SubscriptionResponse,
+            "pong" => WsMessage::Pong,
+            _ => WsMessage::Unknown(value),
+        }
+    }
+}
 
 /// Configuration for WebSocket reconnection behavior.
 #[derive(Debug, Clone, Default)]
@@ -136,7 +353,7 @@ impl HyperliquidWs {
 
     /// Subscribe to a channel. The subscription is remembered so it will be
     /// re-sent automatically on reconnect.
-    pub async fn subscribe(&mut self, subscription: serde_json::Value) -> Result<(), HlError> {
+    pub async fn subscribe_raw(&mut self, subscription: serde_json::Value) -> Result<(), HlError> {
         let msg = serde_json::json!({
             "method": "subscribe",
             "subscription": subscription,
@@ -144,6 +361,63 @@ impl HyperliquidWs {
 
         self.subscriptions.push(msg.clone());
         self.send_raw(&msg).await
+    }
+
+    /// Subscribe to a typed channel. The subscription is serialized and
+    /// forwarded to [`subscribe_raw`](Self::subscribe_raw).
+    pub async fn subscribe_typed(&mut self, sub: Subscription) -> Result<(), HlError> {
+        let value = serde_json::to_value(&sub)
+            .map_err(|e| HlError::serialization(format!("failed to serialize subscription: {e}")))?;
+        self.subscribe_raw(value).await
+    }
+
+    /// Subscribe to the `allMids` channel.
+    pub async fn subscribe_all_mids(&mut self) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::AllMids).await
+    }
+
+    /// Subscribe to L2 book updates for a coin.
+    pub async fn subscribe_l2_book(&mut self, coin: &str) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::L2Book { coin: coin.into() }).await
+    }
+
+    /// Subscribe to trades for a coin.
+    pub async fn subscribe_trades(&mut self, coin: &str) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::Trades { coin: coin.into() }).await
+    }
+
+    /// Subscribe to candle updates for a coin and interval.
+    pub async fn subscribe_candle(&mut self, coin: &str, interval: &str) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::Candle { coin: coin.into(), interval: interval.into() }).await
+    }
+
+    /// Subscribe to order updates for a user.
+    pub async fn subscribe_order_updates(&mut self, user: &str) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::OrderUpdates { user: user.into() }).await
+    }
+
+    /// Subscribe to user fills.
+    pub async fn subscribe_user_fills(&mut self, user: &str) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::UserFills { user: user.into() }).await
+    }
+
+    /// Subscribe to user events.
+    pub async fn subscribe_user_events(&mut self, user: &str) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::UserEvents { user: user.into() }).await
+    }
+
+    /// Subscribe to user fundings.
+    pub async fn subscribe_user_fundings(&mut self, user: &str) -> Result<(), HlError> {
+        self.subscribe_typed(Subscription::UserFundings { user: user.into() }).await
+    }
+
+    /// Read the next typed message from the WebSocket.
+    ///
+    /// This is a convenience wrapper around [`next_message`](Self::next_message)
+    /// that parses the raw JSON into a [`WsMessage`].
+    pub async fn next_typed_message(&mut self) -> Option<Result<WsMessage, HlError>> {
+        let raw = self.next_message().await?;
+        Some(raw.map(WsMessage::parse))
     }
 
     /// Read the next message from the WebSocket.
@@ -491,6 +765,62 @@ mod tests {
     }
 
     #[test]
+    fn subscription_all_mids_serialization() {
+        let sub = Subscription::AllMids;
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "allMids"}));
+    }
+
+    #[test]
+    fn subscription_l2_book_serialization() {
+        let sub = Subscription::L2Book { coin: "BTC".into() };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "l2Book", "coin": "BTC"}));
+    }
+
+    #[test]
+    fn subscription_trades_serialization() {
+        let sub = Subscription::Trades { coin: "ETH".into() };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "trades", "coin": "ETH"}));
+    }
+
+    #[test]
+    fn subscription_candle_serialization() {
+        let sub = Subscription::Candle { coin: "BTC".into(), interval: "1h".into() };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "candle", "coin": "BTC", "interval": "1h"}));
+    }
+
+    #[test]
+    fn subscription_user_fills_serialization() {
+        let sub = Subscription::UserFills { user: "0xABC".into() };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "userFills", "user": "0xABC"}));
+    }
+
+    #[test]
+    fn subscription_order_updates_serialization() {
+        let sub = Subscription::OrderUpdates { user: "0xDEF".into() };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "orderUpdates", "user": "0xDEF"}));
+    }
+
+    #[test]
+    fn subscription_user_events_serialization() {
+        let sub = Subscription::UserEvents { user: "0x123".into() };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "userEvents", "user": "0x123"}));
+    }
+
+    #[test]
+    fn subscription_bbo_serialization() {
+        let sub = Subscription::Bbo { coin: "SOL".into() };
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json, serde_json::json!({"type": "bbo", "coin": "SOL"}));
+    }
+
+    #[test]
     fn error_display_messages() {
         let err = HlError::WsCancelled;
         assert_eq!(format!("{err}"), "WebSocket reconnect cancelled");
@@ -500,5 +830,108 @@ mod tests {
             format!("{err}"),
             "WebSocket reconnect failed after 3 attempts"
         );
+    }
+
+    #[test]
+    fn parse_l2_book_message() {
+        let raw = serde_json::json!({
+            "channel": "l2Book",
+            "data": {
+                "coin": "BTC",
+                "levels": [[{"px":"90000","sz":"1.0"}],[{"px":"90001","sz":"0.5"}]],
+                "time": 1_700_000_000_000u64
+            }
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::L2Book(d) => {
+                assert_eq!(d.coin, "BTC");
+                assert_eq!(d.time, 1_700_000_000_000);
+            }
+            other => panic!("expected L2Book, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_user_fills_message() {
+        let raw = serde_json::json!({
+            "channel": "userFills",
+            "data": {"user": "0xABC", "fills": [{"coin":"BTC"}]}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::UserFills(d) => {
+                assert_eq!(d.user, "0xABC");
+                assert_eq!(d.fills.len(), 1);
+            }
+            other => panic!("expected UserFills, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_order_updates_message() {
+        let raw = serde_json::json!({
+            "channel": "orderUpdates",
+            "data": [{"order": {"oid": 123}, "status": "filled", "statusTimestamp": 1_700_000_000_000u64}]
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::OrderUpdates(u) => {
+                assert_eq!(u.len(), 1);
+                assert_eq!(u[0].status, "filled");
+            }
+            other => panic!("expected OrderUpdates, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_subscription_response() {
+        let raw = serde_json::json!({
+            "channel": "subscriptionResponse",
+            "data": {"method": "subscribe"}
+        });
+        assert!(matches!(
+            WsMessage::parse(raw),
+            WsMessage::SubscriptionResponse
+        ));
+    }
+
+    #[test]
+    fn parse_unknown_channel() {
+        let raw = serde_json::json!({"channel": "futureChannel", "data": {}});
+        assert!(matches!(WsMessage::parse(raw), WsMessage::Unknown(_)));
+    }
+
+    #[test]
+    fn parse_malformed_returns_unknown() {
+        let raw = serde_json::json!("just a string");
+        assert!(matches!(WsMessage::parse(raw), WsMessage::Unknown(_)));
+    }
+
+    #[test]
+    fn parse_all_mids_message() {
+        let raw = serde_json::json!({
+            "channel": "allMids",
+            "data": {"mids": {"BTC": "90000", "ETH": "3000"}}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::AllMids(data) => {
+                assert!(data.mids.get("BTC").is_some());
+            }
+            other => panic!("expected AllMids, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_pong_message() {
+        let raw = serde_json::json!({"channel": "pong"});
+        assert!(matches!(WsMessage::parse(raw), WsMessage::Pong));
+    }
+
+    #[test]
+    fn parse_pong_method_message() {
+        let raw = serde_json::json!({"method": "pong"});
+        assert!(matches!(WsMessage::parse(raw), WsMessage::Pong));
     }
 }

@@ -20,4 +20,8 @@ pub use retry::{RetryConfig, TimeoutConfig};
 pub use transport::HttpTransport;
 
 #[cfg(feature = "ws")]
-pub use ws::{HyperliquidWs, WsConfig};
+pub use ws::{
+    HyperliquidWs, Subscription, WsConfig, WsMessage,
+    AllMidsData, BboData, CandleData, L2BookData, OrderUpdateData,
+    TradesData, UserEventsData, UserFillsData, UserFundingsData,
+};
