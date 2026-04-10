@@ -16,8 +16,10 @@ pub mod leverage;
 pub mod modify;
 pub mod orders;
 pub mod response;
+pub mod scale;
 pub mod sub_account;
 pub mod transfer;
+pub mod twap;
 
 /// Normalize a market symbol to its base coin name.
 ///
