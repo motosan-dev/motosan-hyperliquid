@@ -371,7 +371,8 @@ impl OrderExecutor {
 
 /// Fetch the mid-price from the L2 orderbook.
 ///
-/// Queries `l2Book` for the given coin and returns `(best_bid + best_ask) / 2`.
+/// Queries `l2Book` for the given coin and delegates parsing to
+/// [`hl_types::parse_mid_price_from_l2book`].
 async fn extract_mid_price(
     client: &std::sync::Arc<dyn hl_client::HttpTransport>,
     coin: &str,
@@ -383,84 +384,14 @@ async fn extract_mid_price(
         }))
         .await?;
 
-    let levels = resp
-        .get("levels")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| HlError::Parse("l2Book response missing 'levels' array".into()))?;
-
-    if levels.len() < 2 {
-        return Err(HlError::Parse(
-            "l2Book 'levels' array has fewer than 2 entries".into(),
-        ));
-    }
-
-    let best_bid = levels[0]
-        .as_array()
-        .and_then(|a| a.first())
-        .and_then(|e| e.get("px"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| HlError::Parse("l2Book: missing best bid price".into()))?;
-
-    let best_ask = levels[1]
-        .as_array()
-        .and_then(|a| a.first())
-        .and_then(|e| e.get("px"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| HlError::Parse("l2Book: missing best ask price".into()))?;
-
-    let bid: Decimal = Decimal::from_str(best_bid)
-        .map_err(|e| HlError::Parse(format!("l2Book: invalid bid price '{}': {}", best_bid, e)))?;
-    let ask: Decimal = Decimal::from_str(best_ask)
-        .map_err(|e| HlError::Parse(format!("l2Book: invalid ask price '{}': {}", best_ask, e)))?;
-
-    Ok((bid + ask) / Decimal::from(2))
+    hl_types::parse_mid_price_from_l2book(&resp)
 }
 
 /// Extract a position's size and side from a `clearinghouseState` response.
 ///
-/// Returns `(side, abs_size)` where `side` is the position direction (Buy = long, Sell = short).
+/// Delegates to [`hl_types::parse_position_szi`].
 fn extract_position_szi(resp: &serde_json::Value, coin: &str) -> Result<(Side, Decimal), HlError> {
-    let positions = resp
-        .get("assetPositions")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| HlError::Parse("clearinghouseState: missing 'assetPositions'".into()))?;
-
-    for pos in positions {
-        let position = &pos["position"];
-        let pos_coin = position.get("coin").and_then(|v| v.as_str()).unwrap_or("");
-        if pos_coin.to_uppercase() != coin.to_uppercase() {
-            continue;
-        }
-        let szi_str = position
-            .get("szi")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| HlError::Parse("clearinghouseState: missing 'szi' field".into()))?;
-        let szi: Decimal = Decimal::from_str(szi_str).map_err(|e| {
-            HlError::Parse(format!(
-                "clearinghouseState: invalid szi '{}': {}",
-                szi_str, e
-            ))
-        })?;
-
-        if szi.is_zero() {
-            return Err(HlError::Parse(format!(
-                "market_close: position size for {} is zero",
-                coin
-            )));
-        }
-
-        let side = if szi > Decimal::ZERO {
-            Side::Buy // long
-        } else {
-            Side::Sell // short
-        };
-        return Ok((side, szi.abs()));
-    }
-
-    Err(HlError::Parse(format!(
-        "market_close: no open position found for {}",
-        coin
-    )))
+    hl_types::parse_position_szi(resp, coin)
 }
 
 #[cfg(test)]

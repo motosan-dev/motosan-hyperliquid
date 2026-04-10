@@ -38,4 +38,6 @@ pub use order::{
 pub use response::{HlActionResponse, OrderResponse};
 pub use rust_decimal::Decimal;
 pub use signature::Signature;
-pub use util::{normalize_coin, parse_str_decimal};
+pub use util::{
+    normalize_coin, parse_mid_price_from_l2book, parse_position_szi, parse_str_decimal,
+};
