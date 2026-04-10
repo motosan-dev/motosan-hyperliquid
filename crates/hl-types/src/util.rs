@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::str::FromStr;
 
 use rust_decimal::Decimal;
@@ -31,14 +32,25 @@ pub fn parse_str_decimal(val: Option<&serde_json::Value>, field: &str) -> Result
 ///
 /// Removes `-PERP`, `-USDC`, and `-USD` suffixes and converts to uppercase
 /// so that e.g. `"BTC-PERP"` becomes `"BTC"` and `"btc"` becomes `"BTC"`.
-pub fn normalize_coin(coin: &str) -> String {
+///
+/// Returns `Cow::Borrowed` when the input is already uppercase and has no
+/// suffix to strip, avoiding a heap allocation in the common case.
+pub fn normalize_coin(coin: &str) -> Cow<'_, str> {
     let s = coin.trim();
+
+    // Try stripping suffixes — always needs a new String.
     for suffix in &["-PERP", "-USDC", "-USD"] {
         if let Some(stripped) = s.strip_suffix(suffix) {
-            return stripped.to_uppercase();
+            return Cow::Owned(stripped.to_uppercase());
         }
     }
-    s.to_uppercase()
+
+    // No suffix to strip — borrow if already uppercase.
+    if s.chars().all(|c| !c.is_ascii_lowercase()) {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(s.to_uppercase())
+    }
 }
 
 /// Parse the mid price from an `l2Book` JSON response.
@@ -278,5 +290,26 @@ mod tests {
     #[test]
     fn mixed_case_no_suffix() {
         assert_eq!(normalize_coin("Eth"), "ETH");
+    }
+
+    #[test]
+    fn already_uppercase_borrows() {
+        let result = normalize_coin("BTC");
+        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_eq!(result, "BTC");
+    }
+
+    #[test]
+    fn lowercase_allocates() {
+        let result = normalize_coin("btc");
+        assert!(matches!(result, Cow::Owned(_)));
+        assert_eq!(result, "BTC");
+    }
+
+    #[test]
+    fn suffix_stripped_allocates() {
+        let result = normalize_coin("BTC-PERP");
+        assert!(matches!(result, Cow::Owned(_)));
+        assert_eq!(result, "BTC");
     }
 }
