@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -6,7 +7,7 @@ use rust_decimal::Decimal;
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
     normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook, HlPerpDexStatus,
-    HlSpotAssetInfo, HlSpotMeta,
+    HlSpotAssetInfo, HlSpotMeta, HlTrade,
 };
 
 /// Typed interface for Hyperliquid market data queries.
@@ -90,6 +91,23 @@ impl MarketData {
         let payload = serde_json::json!({ "type": "spotMeta" });
         let resp = self.client.post_info(payload).await?;
         parse_spot_meta(&resp)
+    }
+
+    /// Fetch recent trades for a coin.
+    #[tracing::instrument(skip(self))]
+    pub async fn recent_trades(&self, coin: &str) -> Result<Vec<HlTrade>, HlError> {
+        let coin = normalize_coin(coin).to_uppercase();
+        let payload = serde_json::json!({ "type": "recentTrades", "coin": coin });
+        let resp = self.client.post_info(payload).await?;
+        parse_recent_trades(&resp)
+    }
+
+    /// Fetch all asset mid prices in a single call.
+    #[tracing::instrument(skip(self))]
+    pub async fn all_mids(&self) -> Result<HashMap<String, Decimal>, HlError> {
+        let payload = serde_json::json!({ "type": "allMids" });
+        let resp = self.client.post_info(payload).await?;
+        parse_all_mids(&resp)
     }
 
     /// Compute the mid-price for a coin from its current orderbook.
@@ -452,6 +470,61 @@ pub fn parse_perps_at_oi_cap(response: &serde_json::Value) -> Result<Vec<String>
     Ok(coins)
 }
 
+/// Parse a `recentTrades` response into a `Vec<HlTrade>`.
+///
+/// The response is an array of trade objects:
+/// `[{"coin":"BTC","side":"B","px":"94000.0","sz":"0.1","time":1700000000000}, ...]`
+pub fn parse_recent_trades(response: &serde_json::Value) -> Result<Vec<HlTrade>, HlError> {
+    let arr = response
+        .as_array()
+        .ok_or_else(|| parse_err("recentTrades response is not an array"))?;
+
+    let mut trades = Vec::with_capacity(arr.len());
+    for item in arr {
+        let coin = item
+            .get("coin")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| parse_err("missing 'coin' in trade entry"))?
+            .to_string();
+
+        let side = item
+            .get("side")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| parse_err("missing 'side' in trade entry"))?
+            .to_string();
+
+        let px = parse_str_decimal(item.get("px"), "px")?;
+        let sz = parse_str_decimal(item.get("sz"), "sz")?;
+
+        let time = item
+            .get("time")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| parse_err("missing 'time' in trade entry"))?;
+
+        trades.push(HlTrade::new(coin, side, px, sz, time));
+    }
+
+    Ok(trades)
+}
+
+/// Parse an `allMids` response into a `HashMap<String, Decimal>`.
+///
+/// The response is a flat object mapping coin symbols to mid price strings:
+/// `{"BTC": "94000.5", "ETH": "3500.0", ...}`
+pub fn parse_all_mids(response: &serde_json::Value) -> Result<HashMap<String, Decimal>, HlError> {
+    let obj = response
+        .as_object()
+        .ok_or_else(|| parse_err("allMids response is not an object"))?;
+
+    let mut mids = HashMap::with_capacity(obj.len());
+    for (coin, val) in obj {
+        let px = parse_str_decimal(Some(val), coin)?;
+        mids.insert(coin.clone(), px);
+    }
+
+    Ok(mids)
+}
+
 /// Convert a candle interval string to its duration in milliseconds.
 fn interval_to_ms(interval: &str) -> Result<u64, HlError> {
     match interval {
@@ -747,6 +820,109 @@ mod tests {
         assert!(msg.contains("unsupported interval"), "should error: {msg}");
     }
 
+    #[test]
+    fn test_parse_recent_trades_valid() {
+        let json = serde_json::json!([
+            {
+                "coin": "BTC",
+                "side": "B",
+                "px": "94000.0",
+                "sz": "0.1",
+                "time": 1700000000000_u64
+            },
+            {
+                "coin": "BTC",
+                "side": "A",
+                "px": "94001.5",
+                "sz": "0.25",
+                "time": 1700000001000_u64
+            }
+        ]);
+
+        let trades = parse_recent_trades(&json).unwrap();
+        assert_eq!(trades.len(), 2);
+        assert_eq!(trades[0].coin, "BTC");
+        assert_eq!(trades[0].side, "B");
+        assert_eq!(trades[0].px, Decimal::from_str("94000.0").unwrap());
+        assert_eq!(trades[0].sz, Decimal::from_str("0.1").unwrap());
+        assert_eq!(trades[0].time, 1700000000000);
+        assert_eq!(trades[1].side, "A");
+        assert_eq!(trades[1].px, Decimal::from_str("94001.5").unwrap());
+        assert_eq!(trades[1].sz, Decimal::from_str("0.25").unwrap());
+        assert_eq!(trades[1].time, 1700000001000);
+    }
+
+    #[test]
+    fn test_parse_recent_trades_empty() {
+        let json = serde_json::json!([]);
+        let trades = parse_recent_trades(&json).unwrap();
+        assert!(trades.is_empty());
+    }
+
+    #[test]
+    fn test_parse_recent_trades_not_array() {
+        let json = serde_json::json!({"error": "bad"});
+        assert!(parse_recent_trades(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_recent_trades_missing_coin() {
+        let json = serde_json::json!([{
+            "side": "B",
+            "px": "100.0",
+            "sz": "1.0",
+            "time": 1_u64
+        }]);
+        assert!(parse_recent_trades(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_recent_trades_missing_side() {
+        let json = serde_json::json!([{
+            "coin": "BTC",
+            "px": "100.0",
+            "sz": "1.0",
+            "time": 1_u64
+        }]);
+        assert!(parse_recent_trades(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_all_mids_valid() {
+        let json = serde_json::json!({
+            "BTC": "94000.5",
+            "ETH": "3500.0",
+            "SOL": "145.25"
+        });
+
+        let mids = parse_all_mids(&json).unwrap();
+        assert_eq!(mids.len(), 3);
+        assert_eq!(mids["BTC"], Decimal::from_str("94000.5").unwrap());
+        assert_eq!(mids["ETH"], Decimal::from_str("3500.0").unwrap());
+        assert_eq!(mids["SOL"], Decimal::from_str("145.25").unwrap());
+    }
+
+    #[test]
+    fn test_parse_all_mids_empty() {
+        let json = serde_json::json!({});
+        let mids = parse_all_mids(&json).unwrap();
+        assert!(mids.is_empty());
+    }
+
+    #[test]
+    fn test_parse_all_mids_not_object() {
+        let json = serde_json::json!([]);
+        assert!(parse_all_mids(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_all_mids_invalid_value() {
+        let json = serde_json::json!({
+            "BTC": "not_a_number"
+        });
+        assert!(parse_all_mids(&json).is_err());
+    }
+
     // -----------------------------------------------------------------------
     // Mock transport tests — demonstrate unit testing without real HTTP calls
     // -----------------------------------------------------------------------
@@ -898,6 +1074,44 @@ mod tests {
         let meta = market.spot_meta().await.unwrap();
         assert_eq!(meta.tokens.len(), 1);
         assert_eq!(meta.tokens[0].name, "PURR");
+    }
+
+    #[tokio::test]
+    async fn mock_transport_recent_trades() {
+        let response = serde_json::json!([
+            {
+                "coin": "BTC",
+                "side": "B",
+                "px": "94000.0",
+                "sz": "0.1",
+                "time": 1700000000000_u64
+            }
+        ]);
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let trades = market.recent_trades("BTC-PERP").await.unwrap();
+        assert_eq!(trades.len(), 1);
+        assert_eq!(trades[0].coin, "BTC");
+        assert_eq!(trades[0].side, "B");
+        assert_eq!(trades[0].px, Decimal::from_str("94000.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn mock_transport_all_mids() {
+        let response = serde_json::json!({
+            "BTC": "94000.5",
+            "ETH": "3500.0"
+        });
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let mids = market.all_mids().await.unwrap();
+        assert_eq!(mids.len(), 2);
+        assert_eq!(mids["BTC"], Decimal::from_str("94000.5").unwrap());
+        assert_eq!(mids["ETH"], Decimal::from_str("3500.0").unwrap());
     }
 
     #[tokio::test]

@@ -48,6 +48,18 @@ pub enum Subscription {
     Notification { user: String },
     /// Subscribe to web data v2 for a user.
     WebData2 { user: String },
+    /// Subscribe to web data v3 (aggregate user info).
+    WebData3 { user: String },
+    /// Subscribe to clearinghouse state updates.
+    ClearinghouseState { user: String },
+    /// Subscribe to active asset context.
+    ActiveAssetCtx { coin: String },
+    /// Subscribe to active asset data.
+    ActiveAssetData { user: String, coin: String },
+    /// Subscribe to user TWAP history.
+    UserTwapHistory { user: String },
+    /// Subscribe to user TWAP slice fills.
+    UserTwapSliceFills { user: String },
 }
 
 /// Data for `allMids` channel messages.
@@ -113,6 +125,48 @@ pub struct UserFundingsData {
     pub funding: serde_json::Value,
 }
 
+/// Data for `webData3` channel messages.
+#[derive(Debug, Clone)]
+pub struct WebData3Data {
+    pub user: String,
+    pub data: serde_json::Value,
+}
+
+/// Data for `clearinghouseState` channel messages.
+#[derive(Debug, Clone)]
+pub struct ClearinghouseStateData {
+    pub user: String,
+    pub data: serde_json::Value,
+}
+
+/// Data for `activeAssetCtx` channel messages.
+#[derive(Debug, Clone)]
+pub struct ActiveAssetCtxData {
+    pub coin: String,
+    pub ctx: serde_json::Value,
+}
+
+/// Data for `activeAssetData` channel messages.
+#[derive(Debug, Clone)]
+pub struct ActiveAssetDataMsg {
+    pub coin: String,
+    pub data: serde_json::Value,
+}
+
+/// Data for `userTwapHistory` channel messages.
+#[derive(Debug, Clone)]
+pub struct UserTwapHistoryData {
+    pub user: String,
+    pub history: Vec<serde_json::Value>,
+}
+
+/// Data for `userTwapSliceFills` channel messages.
+#[derive(Debug, Clone)]
+pub struct UserTwapSliceFillsData {
+    pub user: String,
+    pub fills: Vec<serde_json::Value>,
+}
+
 /// Typed WebSocket message parsed from raw JSON.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -126,6 +180,12 @@ pub enum WsMessage {
     UserEvents(UserEventsData),
     UserFills(UserFillsData),
     UserFundings(UserFundingsData),
+    WebData3(WebData3Data),
+    ClearinghouseState(ClearinghouseStateData),
+    ActiveAssetCtx(ActiveAssetCtxData),
+    ActiveAssetData(ActiveAssetDataMsg),
+    UserTwapHistory(UserTwapHistoryData),
+    UserTwapSliceFills(UserTwapSliceFillsData),
     SubscriptionResponse,
     Pong,
     Unknown(serde_json::Value),
@@ -223,6 +283,62 @@ impl WsMessage {
                     .unwrap_or("")
                     .into(),
                 funding: data,
+            }),
+            "webData3" => WsMessage::WebData3(WebData3Data {
+                user: data
+                    .get("user")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .into(),
+                data: data.clone(),
+            }),
+            "clearinghouseState" => WsMessage::ClearinghouseState(ClearinghouseStateData {
+                user: data
+                    .get("user")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .into(),
+                data: data.clone(),
+            }),
+            "activeAssetCtx" => WsMessage::ActiveAssetCtx(ActiveAssetCtxData {
+                coin: data
+                    .get("coin")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .into(),
+                ctx: data.get("ctx").cloned().unwrap_or_default(),
+            }),
+            "activeAssetData" => WsMessage::ActiveAssetData(ActiveAssetDataMsg {
+                coin: data
+                    .get("coin")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .into(),
+                data: data.clone(),
+            }),
+            "userTwapHistory" => WsMessage::UserTwapHistory(UserTwapHistoryData {
+                user: data
+                    .get("user")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .into(),
+                history: data
+                    .get("history")
+                    .and_then(|h| h.as_array())
+                    .cloned()
+                    .unwrap_or_default(),
+            }),
+            "userTwapSliceFills" => WsMessage::UserTwapSliceFills(UserTwapSliceFillsData {
+                user: data
+                    .get("user")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("")
+                    .into(),
+                fills: data
+                    .get("fills")
+                    .and_then(|f| f.as_array())
+                    .cloned()
+                    .unwrap_or_default(),
             }),
             "subscriptionResponse" => WsMessage::SubscriptionResponse,
             "pong" => WsMessage::Pong,
