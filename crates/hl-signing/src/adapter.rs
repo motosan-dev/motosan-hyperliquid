@@ -180,6 +180,7 @@ mod tests {
     /// Uses a real k256 private key to sign, then verifies the adapter
     /// produces a valid EVM-compatible signature that can recover the
     /// correct public key.
+    #[cfg(feature = "k256-signer")]
     #[test]
     fn sign_prehash_roundtrip_with_real_k256_key() {
         use k256::ecdsa::{signature::hazmat::PrehashSigner, RecoveryId, VerifyingKey};
