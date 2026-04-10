@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use rust_decimal::Decimal;
 
-use hl_types::*;
+use hl_types::{HlError, ModifyRequest, OrderResponse, OrderWire};
 
 use super::orders::{determine_status, order_to_json};
 use super::response::{parse_bulk_order_response_with_fallbacks, parse_order_response};
