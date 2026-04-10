@@ -1,0 +1,28 @@
+[package]
+name = "motosan-hyperliquid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Unified facade crate for the motosan-hyperliquid SDK — re-exports all sub-crates behind feature flags"
+
+[features]
+default = ["full"]
+market = ["dep:hl-market"]
+account = ["dep:hl-account"]
+executor = ["dep:hl-executor"]
+signing = ["dep:hl-signing"]
+ws = ["hl-client/ws"]
+full = ["market", "account", "executor", "signing", "ws"]
+
+[dependencies]
+hl-types.workspace = true
+hl-client.workspace = true
+hl-market = { workspace = true, optional = true }
+hl-account = { workspace = true, optional = true }
+hl-executor = { workspace = true, optional = true }
+hl-signing = { workspace = true, optional = true }
