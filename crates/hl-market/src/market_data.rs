@@ -157,7 +157,10 @@ fn parse_err(msg: impl Into<String>) -> HlError {
 /// `{ "t": epoch_ms, "o": open, "h": high, "l": low, "c": close, "v": volume, ... }`
 ///
 /// The most recent `limit` candles are returned.
-pub fn parse_candles(response: &serde_json::Value, limit: usize) -> Result<Vec<HlCandle>, HlError> {
+pub(crate) fn parse_candles(
+    response: &serde_json::Value,
+    limit: usize,
+) -> Result<Vec<HlCandle>, HlError> {
     let arr = response
         .as_array()
         .ok_or_else(|| parse_err("candle response is not an array"))?;
@@ -196,7 +199,10 @@ pub fn parse_candles(response: &serde_json::Value, limit: usize) -> Result<Vec<H
 ///   - `levels[1]` — ask levels, same shape
 ///
 /// Bids are returned highest-price-first; asks lowest-price-first (as received).
-pub fn parse_orderbook(response: &serde_json::Value, coin: &str) -> Result<HlOrderbook, HlError> {
+pub(crate) fn parse_orderbook(
+    response: &serde_json::Value,
+    coin: &str,
+) -> Result<HlOrderbook, HlError> {
     let levels = response
         .get("levels")
         .and_then(|v| v.as_array())
@@ -241,7 +247,7 @@ pub fn parse_orderbook(response: &serde_json::Value, coin: &str) -> Result<HlOrd
 ///
 /// `px_decimals` is derived from the asset context's `markPx` field when available;
 /// otherwise it defaults to 2.
-pub fn parse_asset_info(response: &serde_json::Value) -> Result<Vec<HlAssetInfo>, HlError> {
+pub(crate) fn parse_asset_info(response: &serde_json::Value) -> Result<Vec<HlAssetInfo>, HlError> {
     let arr = response
         .as_array()
         .ok_or_else(|| parse_err("metaAndAssetCtxs response is not an array"))?;
@@ -316,7 +322,9 @@ pub fn parse_asset_info(response: &serde_json::Value) -> Result<Vec<HlAssetInfo>
 /// Each asset context at index `i` contains:
 ///   `{ "funding": "<rate>", "nextFundingTime": <epoch_ms>, ... }`
 /// The coin name is read from `metaObj.universe[i].name`.
-pub fn parse_funding_rates(response: &serde_json::Value) -> Result<Vec<HlFundingRate>, HlError> {
+pub(crate) fn parse_funding_rates(
+    response: &serde_json::Value,
+) -> Result<Vec<HlFundingRate>, HlError> {
     let arr = response
         .as_array()
         .ok_or_else(|| parse_err("metaAndAssetCtxs response is not an array"))?;
@@ -365,7 +373,7 @@ pub fn parse_funding_rates(response: &serde_json::Value) -> Result<Vec<HlFunding
 ///   `{ "tokens": [{ "name": "PURR", "index": 1, "szDecimals": 0, "weiDecimals": 18 }, ...], ... }`
 ///
 /// Extra top-level fields (e.g. `universe`) are ignored.
-pub fn parse_spot_meta(response: &serde_json::Value) -> Result<HlSpotMeta, HlError> {
+pub(crate) fn parse_spot_meta(response: &serde_json::Value) -> Result<HlSpotMeta, HlError> {
     let tokens_arr = response
         .get("tokens")
         .and_then(|v| v.as_array())
@@ -404,7 +412,7 @@ pub fn parse_spot_meta(response: &serde_json::Value) -> Result<HlSpotMeta, HlErr
 ///   `{ "name": "...", "isActive": true, "numAssets": 5, "totalOi": "1000000.0" }`
 ///
 /// If the `name` field is missing from the response, `dex_name` is used as fallback.
-pub fn parse_perp_dex_status(
+pub(crate) fn parse_perp_dex_status(
     response: &serde_json::Value,
     dex_name: &str,
 ) -> Result<HlPerpDexStatus, HlError> {
@@ -433,7 +441,7 @@ pub fn parse_perp_dex_status(
 /// Parse a `perpsAtOpenInterestCap` JSON response into a list of coin names.
 ///
 /// The response is a JSON array of strings: `["BTC", "ETH", ...]`
-pub fn parse_perps_at_oi_cap(response: &serde_json::Value) -> Result<Vec<String>, HlError> {
+pub(crate) fn parse_perps_at_oi_cap(response: &serde_json::Value) -> Result<Vec<String>, HlError> {
     let arr = response
         .as_array()
         .ok_or_else(|| parse_err("perpsAtOpenInterestCap response is not an array"))?;
@@ -453,7 +461,7 @@ pub fn parse_perps_at_oi_cap(response: &serde_json::Value) -> Result<Vec<String>
 ///
 /// The response is an array of trade objects:
 /// `[{"coin":"BTC","side":"B","px":"94000.0","sz":"0.1","time":1700000000000}, ...]`
-pub fn parse_recent_trades(response: &serde_json::Value) -> Result<Vec<HlTrade>, HlError> {
+pub(crate) fn parse_recent_trades(response: &serde_json::Value) -> Result<Vec<HlTrade>, HlError> {
     let arr = response
         .as_array()
         .ok_or_else(|| parse_err("recentTrades response is not an array"))?;
@@ -491,7 +499,9 @@ pub fn parse_recent_trades(response: &serde_json::Value) -> Result<Vec<HlTrade>,
 ///
 /// The response is a flat object mapping coin symbols to mid price strings:
 /// `{"BTC": "94000.5", "ETH": "3500.0", ...}`
-pub fn parse_all_mids(response: &serde_json::Value) -> Result<HashMap<String, Decimal>, HlError> {
+pub(crate) fn parse_all_mids(
+    response: &serde_json::Value,
+) -> Result<HashMap<String, Decimal>, HlError> {
     let obj = response
         .as_object()
         .ok_or_else(|| parse_err("allMids response is not an object"))?;

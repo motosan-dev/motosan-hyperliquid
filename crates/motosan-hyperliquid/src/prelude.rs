@@ -9,12 +9,15 @@
 pub use hl_types::{
     normalize_coin, CancelByCloidRequest, CancelRequest, Decimal, HlAccountState, HlActionResponse,
     HlAssetInfo, HlCandle, HlError, HlFill, HlFundingRate, HlOrderbook, HlPosition, ModifyRequest,
-    OrderStatus, OrderWire, OrderWireBuilder, PositionSide, Side, Signature, Tif, Tpsl,
+    OrderResponse, OrderStatus, OrderWire, OrderWireBuilder, PositionSide, Side, Signature, Tif,
+    Tpsl, TradeSide,
 };
 
 // -- Client (always available) -----------------------------------------------
 
-pub use hl_client::{HttpTransport, HyperliquidClient, RetryConfig, TimeoutConfig};
+pub use hl_client::{
+    HttpTransport, HyperliquidClient, RateLimitConfig, RetryConfig, TimeoutConfig,
+};
 
 // -- Market ------------------------------------------------------------------
 
@@ -29,7 +32,9 @@ pub use hl_account::Account;
 // -- Executor ----------------------------------------------------------------
 
 #[cfg(feature = "executor")]
-pub use hl_executor::{AssetMetaCache, OrderExecutor};
+pub use hl_executor::{
+    AssetMetaCache, LocalPosition, OrderExecutor, ReconcileAction, ReconcileReport,
+};
 
 // -- Signing -----------------------------------------------------------------
 
