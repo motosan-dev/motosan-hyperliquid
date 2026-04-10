@@ -646,6 +646,18 @@ mod tests {
     }
 
     #[test]
+    fn build_validates_negative_price() {
+        let result = OrderWire::limit_buy(0, Decimal::from(-1), Decimal::ONE).build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_validates_negative_size() {
+        let result = OrderWire::limit_buy(0, Decimal::ONE, Decimal::from(-1)).build();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn build_success() {
         let result = OrderWire::limit_buy(
             0,
