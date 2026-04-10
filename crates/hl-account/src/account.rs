@@ -30,6 +30,7 @@ impl Account {
     }
 
     /// Fetch the full clearinghouse state for an address.
+    #[tracing::instrument(skip(self))]
     pub async fn state(&self, address: &str) -> Result<HlAccountState, HlError> {
         let payload = serde_json::json!({
             "type": "clearinghouseState",
@@ -40,12 +41,14 @@ impl Account {
     }
 
     /// Fetch only the open positions for an address.
+    #[tracing::instrument(skip(self))]
     pub async fn positions(&self, address: &str) -> Result<Vec<HlPosition>, HlError> {
         let state = self.state(address).await?;
         Ok(state.positions)
     }
 
     /// Fetch all fills (trade history) for an address.
+    #[tracing::instrument(skip(self))]
     pub async fn fills(&self, address: &str) -> Result<Vec<HlFill>, HlError> {
         let payload = serde_json::json!({ "type": "userFills", "user": address });
         let resp = self.client.post_info(payload).await?;
@@ -53,6 +56,7 @@ impl Account {
     }
 
     /// Fetch vault summaries for an address.
+    #[tracing::instrument(skip(self))]
     pub async fn vault_summaries(&self, address: &str) -> Result<Vec<HlVaultSummary>, HlError> {
         let payload = serde_json::json!({ "type": "vaultSummaries", "user": address });
         let resp = self.client.post_info(payload).await?;
@@ -68,6 +72,7 @@ impl Account {
     }
 
     /// Fetch details for a specific vault.
+    #[tracing::instrument(skip(self))]
     pub async fn vault_details(
         &self,
         address: &str,
@@ -83,6 +88,7 @@ impl Account {
     }
 
     /// Fetch extra (sub-)agent approvals for an address.
+    #[tracing::instrument(skip(self))]
     pub async fn extra_agents(&self, address: &str) -> Result<Vec<HlExtraAgent>, HlError> {
         let payload = serde_json::json!({ "type": "extraAgents", "user": address });
         let resp = self.client.post_info(payload).await?;
@@ -193,22 +199,18 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
                 Some(v) => Some(parse_str_decimal(v, "liquidationPx")?),
             };
 
-            positions.push(HlPosition {
+            positions.push(HlPosition::new(
                 coin,
                 size,
                 entry_px,
                 unrealized_pnl,
                 leverage,
                 liquidation_px,
-            });
+            ));
         }
     }
 
-    Ok(HlAccountState {
-        equity,
-        margin_available,
-        positions,
-    })
+    Ok(HlAccountState::new(equity, margin_available, positions))
 }
 
 /// Parse a `userFills` JSON response into a [`Vec<HlFill>`].
@@ -261,15 +263,7 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
             None => Decimal::ZERO,
         };
 
-        fills.push(HlFill {
-            coin,
-            px,
-            sz,
-            is_buy,
-            timestamp,
-            fee,
-            closed_pnl,
-        });
+        fills.push(HlFill::new(coin, px, sz, is_buy, timestamp, fee, closed_pnl));
     }
 
     Ok(fills)

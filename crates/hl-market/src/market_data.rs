@@ -31,6 +31,7 @@ impl MarketData {
     ///
     /// `interval` must be one of: `1m`, `5m`, `15m`, `1h`, `4h`, `1d`.
     /// `limit` caps the number of candles returned (most recent).
+    #[tracing::instrument(skip(self))]
     pub async fn candles(
         &self,
         coin: &str,
@@ -56,6 +57,7 @@ impl MarketData {
     }
 
     /// Fetch the L2 orderbook for a given coin.
+    #[tracing::instrument(skip(self))]
     pub async fn orderbook(&self, coin: &str) -> Result<HlOrderbook, HlError> {
         let coin = normalize_coin(coin).to_uppercase();
         let payload = serde_json::json!({ "type": "l2Book", "coin": coin });
@@ -64,6 +66,7 @@ impl MarketData {
     }
 
     /// Fetch static asset metadata for all perpetuals.
+    #[tracing::instrument(skip(self))]
     pub async fn asset_info(&self) -> Result<Vec<HlAssetInfo>, HlError> {
         let payload = serde_json::json!({ "type": "metaAndAssetCtxs" });
         let resp = self.client.post_info(payload).await?;
@@ -71,6 +74,7 @@ impl MarketData {
     }
 
     /// Fetch current funding rates for all perpetuals.
+    #[tracing::instrument(skip(self))]
     pub async fn funding_rates(&self) -> Result<Vec<HlFundingRate>, HlError> {
         let payload = serde_json::json!({ "type": "metaAndAssetCtxs" });
         let resp = self.client.post_info(payload).await?;
@@ -80,6 +84,7 @@ impl MarketData {
     /// Compute the mid-price for a coin from its current orderbook.
     ///
     /// Returns `Err` if either the bid or ask side of the book is empty.
+    #[tracing::instrument(skip(self))]
     pub async fn mid_price(&self, coin: &str) -> Result<Decimal, HlError> {
         let book = self.orderbook(coin).await?;
         let best_bid = book.bids.first().map(|(p, _)| *p);

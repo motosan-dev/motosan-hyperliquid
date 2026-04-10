@@ -197,6 +197,7 @@ impl OrderExecutor {
     /// The `OrderWire` must already have the asset index, price, size, order
     /// type, etc. fully populated. This method constructs the action JSON,
     /// signs it, submits it, and parses the response.
+    #[tracing::instrument(skip(self, order), fields(asset = order.asset, is_buy = order.is_buy))]
     pub async fn place_order(
         &self,
         order: OrderWire,
@@ -302,6 +303,7 @@ impl OrderExecutor {
     }
 
     /// Cancel an order by asset index and exchange order ID.
+    #[tracing::instrument(skip(self), fields(asset, oid))]
     pub async fn cancel_order(
         &self,
         asset: u32,
@@ -331,6 +333,7 @@ impl OrderExecutor {
     /// `side` indicates the order direction (opposite of position side).
     /// `tpsl` indicates whether this is a stop-loss or take-profit trigger.
     /// The order fires as a market order when the trigger price is hit.
+    #[tracing::instrument(skip(self))]
     pub async fn place_trigger_order(
         &self,
         symbol: &str,
@@ -432,6 +435,7 @@ impl OrderExecutor {
     }
 
     /// Transfer USDC into a vault.
+    #[tracing::instrument(skip(self), fields(vault, amount = %amount))]
     pub async fn transfer_to_vault(
         &self,
         vault: &str,
