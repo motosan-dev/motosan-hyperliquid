@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use hl_types::{HlError, Signature};
+use tokio_util::sync::CancellationToken;
 
 use crate::rate_limit::{RateLimitConfig, RateLimiter};
 use crate::retry::{RetryConfig, TimeoutConfig};
@@ -26,6 +27,7 @@ pub struct HyperliquidClient {
     is_mainnet: bool,
     retry_config: RetryConfig,
     rate_limiter: RateLimiter,
+    shutdown: CancellationToken,
 }
 
 impl HyperliquidClient {
@@ -93,7 +95,16 @@ impl HyperliquidClient {
             is_mainnet,
             retry_config,
             rate_limiter,
+            shutdown: CancellationToken::new(),
         })
+    }
+
+    /// Returns a clone of the shutdown [`CancellationToken`].
+    ///
+    /// Cancel this token to gracefully shut down the client: new requests will
+    /// be rejected and in-flight retry backoffs will be interrupted.
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.shutdown.clone()
     }
 
     /// Returns the base URL for the given network.
@@ -183,6 +194,12 @@ impl HyperliquidClient {
         url: &str,
         payload: &serde_json::Value,
     ) -> Result<serde_json::Value, HlError> {
+        if self.shutdown.is_cancelled() {
+            return Err(HlError::Rejected {
+                reason: "client is shutting down".into(),
+            });
+        }
+
         // Acquire concurrency permit (held for the duration of the request).
         let _permit = match &self.rate_limiter.semaphore {
             Some(sem) => Some(sem.acquire().await.map_err(|_| {
@@ -214,7 +231,14 @@ impl HyperliquidClient {
                     "Retrying HTTP request after transient failure"
                 );
 
-                tokio::time::sleep(delay).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(delay) => {},
+                    _ = self.shutdown.cancelled() => {
+                        return Err(HlError::Rejected {
+                            reason: "client shutdown during retry backoff".into(),
+                        });
+                    },
+                }
             }
 
             match self.post_once(url, payload).await {
@@ -401,5 +425,19 @@ mod tests {
         let a = HyperliquidClient::generate_cloid();
         let b = HyperliquidClient::generate_cloid();
         assert_ne!(a, b, "two generated cloids should be unique");
+    }
+
+    #[test]
+    fn shutdown_token_is_not_cancelled_by_default() {
+        let client = HyperliquidClient::testnet().unwrap();
+        assert!(!client.shutdown_token().is_cancelled());
+    }
+
+    #[test]
+    fn shutdown_token_can_be_cancelled() {
+        let client = HyperliquidClient::testnet().unwrap();
+        let token = client.shutdown_token();
+        token.cancel();
+        assert!(token.is_cancelled());
     }
 }
