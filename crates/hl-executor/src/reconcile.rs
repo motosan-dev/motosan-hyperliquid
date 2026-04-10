@@ -15,7 +15,7 @@ use std::str::FromStr;
 use rust_decimal::Decimal;
 
 use hl_client::HyperliquidClient;
-use hl_types::HlError;
+use hl_types::{HlError, PositionSide};
 
 /// A small threshold used to detect zero-size (closed) positions.
 const ZERO_SIZE_THRESHOLD: Decimal = Decimal::from_parts(1, 0, 0, false, 12); // 1e-12
@@ -30,8 +30,8 @@ const SIZE_TOLERANCE_BPS: Decimal = Decimal::from_parts(1, 0, 0, false, 3); // 0
 pub struct LocalPosition {
     pub id: String,
     pub coin: String,
-    /// `"long"` or `"short"`.
-    pub side: String,
+    /// Position side: long or short.
+    pub side: PositionSide,
     pub size: Decimal,
 }
 
@@ -44,7 +44,7 @@ pub enum ReconcileAction {
     /// A position exists on the exchange but was missing locally.
     AddedMissing {
         market: String,
-        side: String,
+        side: PositionSide,
         size: Decimal,
         entry_price: Decimal,
     },
@@ -53,8 +53,8 @@ pub enum ReconcileAction {
         market: String,
         old_size: Decimal,
         new_size: Decimal,
-        old_side: String,
-        new_side: String,
+        old_side: PositionSide,
+        new_side: PositionSide,
     },
 }
 
@@ -70,7 +70,7 @@ pub struct ReconcileReport {
 #[derive(Debug, Clone)]
 struct ExchangePosition {
     market: String,
-    side: String,
+    side: PositionSide,
     size: Decimal,
     entry_price: Decimal,
 }
@@ -102,9 +102,9 @@ fn parse_exchange_positions(resp: &serde_json::Value) -> Vec<ExchangePosition> {
             };
             let market = format!("{}-PERP", coin);
             let side = if size > Decimal::ZERO {
-                "long".to_string()
+                PositionSide::Long
             } else {
-                "short".to_string()
+                PositionSide::Short
             };
             positions.push(ExchangePosition {
                 market,
@@ -204,7 +204,7 @@ pub async fn reconcile_positions(
                 );
                 actions.push(ReconcileAction::AddedMissing {
                     market: ep.market.clone(),
-                    side: ep.side.clone(),
+                    side: ep.side,
                     size: ep.size,
                     entry_price: ep.entry_price,
                 });
@@ -227,8 +227,8 @@ pub async fn reconcile_positions(
                         market: ep.market.clone(),
                         old_size: local_pos.size,
                         new_size: ep.size,
-                        old_side: local_pos.side.clone(),
-                        new_side: ep.side.clone(),
+                        old_side: local_pos.side,
+                        new_side: ep.side,
                     });
                 }
             }
@@ -280,13 +280,13 @@ mod tests {
 
         let btc = &positions[0];
         assert_eq!(btc.market, "BTC-PERP");
-        assert_eq!(btc.side, "long");
+        assert_eq!(btc.side, PositionSide::Long);
         assert_eq!(btc.size, Decimal::from_str("0.5").unwrap());
         assert_eq!(btc.entry_price, Decimal::from_str("60000.0").unwrap());
 
         let eth = &positions[1];
         assert_eq!(eth.market, "ETH-PERP");
-        assert_eq!(eth.side, "short");
+        assert_eq!(eth.side, PositionSide::Short);
         assert_eq!(eth.size, Decimal::from_str("2.0").unwrap());
         assert_eq!(eth.entry_price, Decimal::from_str("3000.0").unwrap());
     }
@@ -310,8 +310,8 @@ mod tests {
 
     #[test]
     fn side_mismatch_detected_same_size() {
-        let local_side = "long";
-        let exchange_side = "short";
+        let local_side = PositionSide::Long;
+        let exchange_side = PositionSide::Short;
         let local_size = Decimal::ONE;
         let exchange_size = Decimal::ONE;
 
@@ -329,8 +329,8 @@ mod tests {
 
     #[test]
     fn no_divergence_when_same_side_and_size() {
-        let local_side = "long";
-        let exchange_side = "long";
+        let local_side = PositionSide::Long;
+        let exchange_side = PositionSide::Long;
         let local_size = Decimal::ONE;
         let exchange_size = Decimal::ONE;
 
@@ -399,7 +399,7 @@ mod tests {
                 None => {
                     actions.push(ReconcileAction::AddedMissing {
                         market: ep.market.clone(),
-                        side: ep.side.clone(),
+                        side: ep.side,
                         size: ep.size,
                         entry_price: ep.entry_price,
                     });
@@ -413,8 +413,8 @@ mod tests {
                             market: ep.market.clone(),
                             old_size: local_pos.size,
                             new_size: ep.size,
-                            old_side: local_pos.side.clone(),
-                            new_side: ep.side.clone(),
+                            old_side: local_pos.side,
+                            new_side: ep.side,
                         });
                     }
                 }
@@ -446,7 +446,7 @@ mod tests {
                 entry_price,
             } => {
                 assert_eq!(market, "BTC-PERP");
-                assert_eq!(side, "long");
+                assert_eq!(*side, PositionSide::Long);
                 assert_eq!(*size, Decimal::from_str("0.5").unwrap());
                 assert_eq!(*entry_price, Decimal::from_str("60000.0").unwrap());
             }
@@ -459,7 +459,7 @@ mod tests {
         let local = vec![LocalPosition {
             id: "pos-1".into(),
             coin: "ETH".into(),
-            side: "long".into(),
+            side: PositionSide::Long,
             size: Decimal::from_str("2.0").unwrap(),
         }];
         let exchange = serde_json::json!({
@@ -481,7 +481,7 @@ mod tests {
         let local = vec![LocalPosition {
             id: "pos-2".into(),
             coin: "BTC".into(),
-            side: "long".into(),
+            side: PositionSide::Long,
             size: Decimal::ONE,
         }];
         let exchange = serde_json::json!({
@@ -506,8 +506,8 @@ mod tests {
                 assert_eq!(market, "BTC-PERP");
                 assert_eq!(*old_size, Decimal::ONE);
                 assert_eq!(*new_size, Decimal::from_str("0.5").unwrap());
-                assert_eq!(old_side, "long");
-                assert_eq!(new_side, "long");
+                assert_eq!(*old_side, PositionSide::Long);
+                assert_eq!(*new_side, PositionSide::Long);
             }
             other => panic!("Expected Updated, got {:?}", other),
         }
@@ -518,7 +518,7 @@ mod tests {
         let local = vec![LocalPosition {
             id: "pos-3".into(),
             coin: "BTC".into(),
-            side: "long".into(),
+            side: PositionSide::Long,
             size: Decimal::ONE,
         }];
         let exchange = serde_json::json!({
@@ -536,8 +536,8 @@ mod tests {
             ReconcileAction::Updated {
                 old_side, new_side, ..
             } => {
-                assert_eq!(old_side, "long");
-                assert_eq!(new_side, "short");
+                assert_eq!(*old_side, PositionSide::Long);
+                assert_eq!(*new_side, PositionSide::Short);
             }
             other => panic!("Expected Updated, got {:?}", other),
         }
@@ -548,7 +548,7 @@ mod tests {
         let local = vec![LocalPosition {
             id: "pos-4".into(),
             coin: "BTC".into(),
-            side: "long".into(),
+            side: PositionSide::Long,
             size: Decimal::from_str("0.5").unwrap(),
         }];
         let exchange = serde_json::json!({
@@ -580,13 +580,13 @@ mod tests {
             LocalPosition {
                 id: "pos-a".into(),
                 coin: "BTC".into(),
-                side: "long".into(),
+                side: PositionSide::Long,
                 size: Decimal::from_str("0.5").unwrap(),
             },
             LocalPosition {
                 id: "pos-b".into(),
                 coin: "BTC".into(),
-                side: "long".into(),
+                side: PositionSide::Long,
                 size: Decimal::from_str("0.3").unwrap(),
             },
         ];
@@ -616,7 +616,7 @@ mod tests {
         let local = vec![LocalPosition {
             id: "pos-5".into(),
             coin: "BTC".into(),
-            side: "long".into(),
+            side: PositionSide::Long,
             size: Decimal::from_str("1.0005").unwrap(), // ~0.05% diff from 1.0
         }];
         let exchange = serde_json::json!({

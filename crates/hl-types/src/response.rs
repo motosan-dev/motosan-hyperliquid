@@ -1,6 +1,8 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::order::OrderStatus;
+
 /// Response returned after placing an order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,8 +15,8 @@ pub struct OrderResponse {
     pub filled_size: Decimal,
     /// Size that was originally requested.
     pub requested_size: Decimal,
-    /// Order status (e.g. "filled", "partial", "open", "rejected").
-    pub status: String,
+    /// Order status.
+    pub status: OrderStatus,
 }
 
 #[cfg(test)]
@@ -29,7 +31,7 @@ mod tests {
             filled_price: Some(Decimal::from_str("50000.0").unwrap()),
             filled_size: Decimal::from_str("0.1").unwrap(),
             requested_size: Decimal::from_str("0.1").unwrap(),
-            status: "filled".into(),
+            status: OrderStatus::Filled,
         };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: OrderResponse = serde_json::from_str(&json).unwrap();
@@ -40,7 +42,7 @@ mod tests {
         );
         assert_eq!(parsed.filled_size, Decimal::from_str("0.1").unwrap());
         assert_eq!(parsed.requested_size, Decimal::from_str("0.1").unwrap());
-        assert_eq!(parsed.status, "filled");
+        assert_eq!(parsed.status, OrderStatus::Filled);
     }
 
     #[test]
@@ -50,12 +52,12 @@ mod tests {
             filled_price: None,
             filled_size: Decimal::ZERO,
             requested_size: Decimal::ONE,
-            status: "open".into(),
+            status: OrderStatus::Open,
         };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: OrderResponse = serde_json::from_str(&json).unwrap();
         assert!(parsed.filled_price.is_none());
-        assert_eq!(parsed.status, "open");
+        assert_eq!(parsed.status, OrderStatus::Open);
     }
 
     #[test]
@@ -65,7 +67,7 @@ mod tests {
             filled_price: None,
             filled_size: Decimal::ZERO,
             requested_size: Decimal::ZERO,
-            status: "x".into(),
+            status: OrderStatus::Open,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("orderId"));

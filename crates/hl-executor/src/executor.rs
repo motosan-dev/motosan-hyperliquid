@@ -199,13 +199,13 @@ impl OrderExecutor {
 
         // Set order type
         if let Some(ref limit) = order.order_type.limit {
-            order_json["t"] = serde_json::json!({ "limit": { "tif": limit.tif } });
+            order_json["t"] = serde_json::json!({ "limit": { "tif": limit.tif.to_string() } });
         } else if let Some(ref trigger) = order.order_type.trigger {
             order_json["t"] = serde_json::json!({
                 "trigger": {
                     "triggerPx": trigger.trigger_px,
                     "isMarket": trigger.is_market,
-                    "tpsl": trigger.tpsl,
+                    "tpsl": trigger.tpsl.to_string(),
                 }
             });
         }
@@ -249,9 +249,9 @@ impl OrderExecutor {
         let (order_id, fill_price, fill_size) =
             parse_order_response(&result, fallback_price, fallback_size)?;
 
-        // Determine status string
+        // Determine status
         let status = if fill_size >= fallback_size * FILL_THRESHOLD {
-            "filled".to_string()
+            OrderStatus::Filled
         } else if fill_size > Decimal::ZERO {
             tracing::warn!(
                 order_id = %order_id,
@@ -259,9 +259,9 @@ impl OrderExecutor {
                 requested = %fallback_size,
                 "Partial fill detected"
             );
-            "partial".to_string()
+            OrderStatus::Partial
         } else {
-            "open".to_string()
+            OrderStatus::Open
         };
 
         Ok(OrderResponse {
@@ -302,16 +302,16 @@ impl OrderExecutor {
 
     /// Place a trigger order (stop-loss or take-profit) on Hyperliquid.
     ///
-    /// `side` should be `"buy"` or `"sell"` (opposite of position side).
-    /// `tpsl` should be `"sl"` for stop-loss or `"tp"` for take-profit.
+    /// `side` indicates the order direction (opposite of position side).
+    /// `tpsl` indicates whether this is a stop-loss or take-profit trigger.
     /// The order fires as a market order when the trigger price is hit.
     pub async fn place_trigger_order(
         &self,
         symbol: &str,
-        side: &str,
+        side: Side,
         size: Decimal,
         trigger_price: Decimal,
-        tpsl: &str,
+        tpsl: Tpsl,
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
         let coin = normalize_symbol(symbol);
@@ -319,7 +319,7 @@ impl OrderExecutor {
             HlError::Parse(format!("Asset '{}' not found in exchange universe", symbol))
         })?;
 
-        let is_buy = side == "buy";
+        let is_buy = side.is_buy();
         let nonce = self.next_nonce();
         let cloid = uuid::Uuid::new_v4().to_string();
 
@@ -335,7 +335,7 @@ impl OrderExecutor {
                     "trigger": {
                         "triggerPx": trigger_price.to_string(),
                         "isMarket": true,
-                        "tpsl": tpsl
+                        "tpsl": tpsl.to_string()
                     }
                 },
                 "c": cloid
@@ -386,14 +386,13 @@ impl OrderExecutor {
                 requested = %size,
                 "Partial fill detected on trigger order"
             );
-            "partial".to_string()
+            OrderStatus::Partial
         } else if fill_size == Decimal::ZERO {
-            "open".to_string()
+            OrderStatus::Open
         } else {
             match tpsl {
-                "sl" => "trigger_sl".to_string(),
-                "tp" => "trigger_tp".to_string(),
-                _ => "filled".to_string(),
+                Tpsl::Sl => OrderStatus::TriggerSl,
+                Tpsl::Tp => OrderStatus::TriggerTp,
             }
         };
 

@@ -21,7 +21,10 @@ pub use account::{HlAccountState, HlFill, HlPosition};
 pub use candle::HlCandle;
 pub use error::HlError;
 pub use market::{HlAssetInfo, HlFundingRate, HlOrderbook};
-pub use order::{LimitOrderType, OrderTypeWire, OrderWire, TriggerOrderType};
+pub use order::{
+    LimitOrderType, OrderStatus, OrderTypeWire, OrderWire, PositionSide, Side, Tif, Tpsl,
+    TriggerOrderType,
+};
 pub use response::OrderResponse;
 pub use rust_decimal::Decimal;
 pub use signature::Signature;
