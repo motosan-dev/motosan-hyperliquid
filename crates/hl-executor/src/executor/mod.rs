@@ -11,6 +11,7 @@ use hl_types::*;
 use crate::meta_cache::AssetMetaCache;
 
 pub mod cancel;
+pub mod modify;
 pub mod orders;
 pub mod response;
 
