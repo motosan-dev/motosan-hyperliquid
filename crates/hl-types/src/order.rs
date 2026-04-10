@@ -1,3 +1,5 @@
+use crate::HlError;
+use rust_decimal::Decimal;
 use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -15,6 +17,11 @@ impl Side {
     /// Returns `true` if this is the buy side.
     pub fn is_buy(self) -> bool {
         matches!(self, Side::Buy)
+    }
+
+    /// Create a [`Side`] from a boolean `is_buy` flag.
+    pub fn from_is_buy(is_buy: bool) -> Self {
+        if is_buy { Side::Buy } else { Side::Sell }
     }
 }
 
@@ -182,9 +189,29 @@ impl OrderWireBuilder {
         self
     }
 
-    /// Build the final [`OrderWire`].
-    pub fn build(self) -> OrderWire {
-        OrderWire {
+    /// Build the final [`OrderWire`], validating that price and size are positive.
+    pub fn build(self) -> Result<OrderWire, HlError> {
+        let px: Decimal = self
+            .limit_px
+            .parse()
+            .map_err(|_| HlError::Parse(format!("invalid price: {}", self.limit_px)))?;
+        if px <= Decimal::ZERO {
+            return Err(HlError::Parse(format!(
+                "price must be positive, got: {}",
+                self.limit_px
+            )));
+        }
+        let sz: Decimal = self
+            .sz
+            .parse()
+            .map_err(|_| HlError::Parse(format!("invalid size: {}", self.sz)))?;
+        if sz <= Decimal::ZERO {
+            return Err(HlError::Parse(format!(
+                "size must be positive, got: {}",
+                self.sz
+            )));
+        }
+        Ok(OrderWire {
             asset: self.asset,
             is_buy: self.is_buy,
             limit_px: self.limit_px,
@@ -192,7 +219,7 @@ impl OrderWireBuilder {
             reduce_only: self.reduce_only,
             order_type: self.order_type,
             cloid: self.cloid,
-        }
+        })
     }
 }
 
@@ -205,25 +232,24 @@ impl OrderWire {
     ///
     /// ```
     /// use hl_types::{OrderWire, Tif};
+    /// use rust_decimal::Decimal;
+    /// use std::str::FromStr;
     ///
-    /// let order = OrderWire::limit_buy(0, "90000.0", "0.001")
+    /// let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from_str("0.001").unwrap())
     ///     .tif(Tif::Gtc)
     ///     .cloid("my-order-1")
-    ///     .build();
+    ///     .build()
+    ///     .unwrap();
     ///
     /// assert!(order.is_buy);
-    /// assert_eq!(order.limit_px, "90000.0");
+    /// assert_eq!(order.limit_px, "90000");
     /// ```
-    pub fn limit_buy(
-        asset: u32,
-        limit_px: impl Into<String>,
-        sz: impl Into<String>,
-    ) -> OrderWireBuilder {
+    pub fn limit_buy(asset: u32, limit_px: Decimal, sz: Decimal) -> OrderWireBuilder {
         OrderWireBuilder {
             asset,
             is_buy: true,
-            limit_px: limit_px.into(),
-            sz: sz.into(),
+            limit_px: limit_px.to_string(),
+            sz: sz.to_string(),
             reduce_only: false,
             order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
             cloid: None,
@@ -233,16 +259,12 @@ impl OrderWire {
     /// Start building a limit sell order.
     ///
     /// Defaults to `Tif::Gtc`, `reduce_only = false`, no `cloid`.
-    pub fn limit_sell(
-        asset: u32,
-        limit_px: impl Into<String>,
-        sz: impl Into<String>,
-    ) -> OrderWireBuilder {
+    pub fn limit_sell(asset: u32, limit_px: Decimal, sz: Decimal) -> OrderWireBuilder {
         OrderWireBuilder {
             asset,
             is_buy: false,
-            limit_px: limit_px.into(),
-            sz: sz.into(),
+            limit_px: limit_px.to_string(),
+            sz: sz.to_string(),
             reduce_only: false,
             order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
             cloid: None,
@@ -255,19 +277,19 @@ impl OrderWire {
     /// Defaults to `reduce_only = true`, no `cloid`.
     pub fn trigger_buy(
         asset: u32,
-        trigger_px: impl Into<String>,
-        sz: impl Into<String>,
+        trigger_px: Decimal,
+        sz: Decimal,
         tpsl: Tpsl,
     ) -> OrderWireBuilder {
-        let trigger_px = trigger_px.into();
+        let trigger_px_str = trigger_px.to_string();
         OrderWireBuilder {
             asset,
             is_buy: true,
-            limit_px: trigger_px.clone(),
-            sz: sz.into(),
+            limit_px: trigger_px_str.clone(),
+            sz: sz.to_string(),
             reduce_only: true,
             order_type: OrderTypeWire::Trigger(TriggerOrderType {
-                trigger_px,
+                trigger_px: trigger_px_str,
                 is_market: true,
                 tpsl,
             }),
@@ -281,19 +303,19 @@ impl OrderWire {
     /// Defaults to `reduce_only = true`, no `cloid`.
     pub fn trigger_sell(
         asset: u32,
-        trigger_px: impl Into<String>,
-        sz: impl Into<String>,
+        trigger_px: Decimal,
+        sz: Decimal,
         tpsl: Tpsl,
     ) -> OrderWireBuilder {
-        let trigger_px = trigger_px.into();
+        let trigger_px_str = trigger_px.to_string();
         OrderWireBuilder {
             asset,
             is_buy: false,
-            limit_px: trigger_px.clone(),
-            sz: sz.into(),
+            limit_px: trigger_px_str.clone(),
+            sz: sz.to_string(),
             reduce_only: true,
             order_type: OrderTypeWire::Trigger(TriggerOrderType {
-                trigger_px,
+                trigger_px: trigger_px_str,
                 is_market: true,
                 tpsl,
             }),
@@ -448,6 +470,7 @@ impl ModifyRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     // ── OrderTypeWire enum serde ────────────────────────────────
 
@@ -523,10 +546,16 @@ mod tests {
 
     #[test]
     fn builder_limit_buy_defaults() {
-        let order = OrderWire::limit_buy(1, "90000.0", "0.001").build();
+        let order = OrderWire::limit_buy(
+            1,
+            Decimal::from(90000),
+            Decimal::from_str("0.001").unwrap(),
+        )
+        .build()
+        .unwrap();
         assert_eq!(order.asset, 1);
         assert!(order.is_buy);
-        assert_eq!(order.limit_px, "90000.0");
+        assert_eq!(order.limit_px, "90000");
         assert_eq!(order.sz, "0.001");
         assert!(!order.reduce_only);
         assert!(order.order_type.is_limit());
@@ -538,15 +567,16 @@ mod tests {
 
     #[test]
     fn builder_limit_sell_with_options() {
-        let order = OrderWire::limit_sell(5, "3000.0", "2.0")
+        let order = OrderWire::limit_sell(5, Decimal::from(3000), Decimal::from(2))
             .tif(Tif::Ioc)
             .cloid("my-order-1")
             .reduce_only(true)
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(order.asset, 5);
         assert!(!order.is_buy);
-        assert_eq!(order.limit_px, "3000.0");
-        assert_eq!(order.sz, "2.0");
+        assert_eq!(order.limit_px, "3000");
+        assert_eq!(order.sz, "2");
         assert!(order.reduce_only);
         assert_eq!(order.cloid.as_deref(), Some("my-order-1"));
         if let OrderTypeWire::Limit(ref l) = order.order_type {
@@ -558,15 +588,16 @@ mod tests {
 
     #[test]
     fn builder_trigger_buy() {
-        let order = OrderWire::trigger_buy(0, "99.0", "10.0", Tpsl::Sl)
+        let order = OrderWire::trigger_buy(0, Decimal::from(99), Decimal::from(10), Tpsl::Sl)
             .cloid("trigger-1")
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(order.asset, 0);
         assert!(order.is_buy);
         assert!(order.reduce_only);
         assert!(order.order_type.is_trigger());
         if let OrderTypeWire::Trigger(ref t) = order.order_type {
-            assert_eq!(t.trigger_px, "99.0");
+            assert_eq!(t.trigger_px, "99");
             assert!(t.is_market);
             assert_eq!(t.tpsl, Tpsl::Sl);
         } else {
@@ -576,15 +607,16 @@ mod tests {
 
     #[test]
     fn builder_trigger_sell() {
-        let order = OrderWire::trigger_sell(2, "150.0", "5.0", Tpsl::Tp)
+        let order = OrderWire::trigger_sell(2, Decimal::from(150), Decimal::from(5), Tpsl::Tp)
             .reduce_only(false)
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(order.asset, 2);
         assert!(!order.is_buy);
         assert!(!order.reduce_only); // overridden from default true
         assert!(order.order_type.is_trigger());
         if let OrderTypeWire::Trigger(ref t) = order.order_type {
-            assert_eq!(t.trigger_px, "150.0");
+            assert_eq!(t.trigger_px, "150");
             assert_eq!(t.tpsl, Tpsl::Tp);
         } else {
             panic!("expected trigger order type");
@@ -594,24 +626,71 @@ mod tests {
     #[test]
     fn builder_tif_noop_on_trigger() {
         // Calling .tif() on a trigger builder should not panic or change anything
-        let order = OrderWire::trigger_buy(0, "99.0", "1.0", Tpsl::Sl)
+        let order = OrderWire::trigger_buy(0, Decimal::from(99), Decimal::ONE, Tpsl::Sl)
             .tif(Tif::Ioc)
-            .build();
+            .build()
+            .unwrap();
         assert!(order.order_type.is_trigger());
+    }
+
+    #[test]
+    fn build_validates_positive_price() {
+        let result = OrderWire::limit_buy(0, Decimal::ZERO, Decimal::ONE).build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_validates_positive_size() {
+        let result = OrderWire::limit_buy(0, Decimal::ONE, Decimal::ZERO).build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_validates_negative_price() {
+        let result = OrderWire::limit_buy(0, Decimal::from(-1), Decimal::ONE).build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_validates_negative_size() {
+        let result = OrderWire::limit_buy(0, Decimal::ONE, Decimal::from(-1)).build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_success() {
+        let result = OrderWire::limit_buy(
+            0,
+            Decimal::from(90000),
+            Decimal::from_str("0.001").unwrap(),
+        )
+        .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn side_from_is_buy() {
+        assert_eq!(Side::from_is_buy(true), Side::Buy);
+        assert_eq!(Side::from_is_buy(false), Side::Sell);
     }
 
     // ── OrderWire serde (full struct) ───────────────────────────
 
     #[test]
     fn order_wire_limit_serde_roundtrip() {
-        let order = OrderWire::limit_buy(1, "50000.0", "0.1")
-            .cloid("test-cloid")
-            .build();
+        let order = OrderWire::limit_buy(
+            1,
+            Decimal::from(50000),
+            Decimal::from_str("0.1").unwrap(),
+        )
+        .cloid("test-cloid")
+        .build()
+        .unwrap();
         let json = serde_json::to_string(&order).unwrap();
         let parsed: OrderWire = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.asset, 1);
         assert!(parsed.is_buy);
-        assert_eq!(parsed.limit_px, "50000.0");
+        assert_eq!(parsed.limit_px, "50000");
         assert_eq!(parsed.sz, "0.1");
         assert!(!parsed.reduce_only);
         assert_eq!(parsed.cloid.as_deref(), Some("test-cloid"));
@@ -620,21 +699,25 @@ mod tests {
 
     #[test]
     fn order_wire_trigger_serde_roundtrip() {
-        let order = OrderWire::trigger_buy(0, "100.0", "10.0", Tpsl::Tp).build();
+        let order = OrderWire::trigger_buy(0, Decimal::from(100), Decimal::from(10), Tpsl::Tp)
+            .build()
+            .unwrap();
         let json = serde_json::to_string(&order).unwrap();
         let parsed: OrderWire = serde_json::from_str(&json).unwrap();
         let trigger = match parsed.order_type {
             OrderTypeWire::Trigger(t) => t,
             _ => panic!("expected trigger"),
         };
-        assert_eq!(trigger.trigger_px, "100.0");
+        assert_eq!(trigger.trigger_px, "100");
         assert!(trigger.is_market);
         assert_eq!(trigger.tpsl, Tpsl::Tp);
     }
 
     #[test]
     fn order_wire_camel_case_serialization() {
-        let order = OrderWire::limit_buy(0, "1.0", "1.0").build();
+        let order = OrderWire::limit_buy(0, Decimal::ONE, Decimal::ONE)
+            .build()
+            .unwrap();
         let json = serde_json::to_string(&order).unwrap();
         assert!(json.contains("isBuy"));
         assert!(json.contains("limitPx"));
@@ -646,10 +729,12 @@ mod tests {
 
     #[test]
     fn order_wire_with_cloid_roundtrip() {
-        let order = OrderWire::limit_sell(5, "3000.5", "2.0")
-            .reduce_only(true)
-            .cloid("my-order-123")
-            .build();
+        let order =
+            OrderWire::limit_sell(5, Decimal::from_str("3000.5").unwrap(), Decimal::from(2))
+                .reduce_only(true)
+                .cloid("my-order-123")
+                .build()
+                .unwrap();
         let json = serde_json::to_string(&order).unwrap();
         let parsed: OrderWire = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.cloid.as_deref(), Some("my-order-123"));

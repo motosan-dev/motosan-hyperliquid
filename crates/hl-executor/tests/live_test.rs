@@ -3,6 +3,8 @@
 use hl_client::HyperliquidClient;
 use hl_executor::{AssetMetaCache, OrderExecutor};
 use hl_signing::PrivateKeySigner;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 fn setup() -> (HyperliquidClient, Box<dyn hl_signing::Signer>, String) {
     let key = std::env::var("HYPERLIQUID_TESTNET_KEY")
@@ -60,8 +62,20 @@ async fn live_bulk_order_and_cancel() {
         .expect("BTC asset index not found");
 
     // Place 2 BTC buy orders at $1 (will never fill)
-    let order1 = hl_types::OrderWire::limit_buy(btc_idx, "1", "0.001").build();
-    let order2 = hl_types::OrderWire::limit_buy(btc_idx, "1", "0.001").build();
+    let order1 = hl_types::OrderWire::limit_buy(
+        btc_idx,
+        Decimal::from(1),
+        Decimal::from_str("0.001").unwrap(),
+    )
+    .build()
+    .unwrap();
+    let order2 = hl_types::OrderWire::limit_buy(
+        btc_idx,
+        Decimal::from(1),
+        Decimal::from_str("0.001").unwrap(),
+    )
+    .build()
+    .unwrap();
 
     let responses = executor
         .bulk_order(vec![order1, order2], None)
@@ -99,9 +113,14 @@ async fn live_cancel_by_cloid() {
     let cloid = HyperliquidClient::generate_cloid();
 
     // Place a BTC buy at $1 with the generated cloid
-    let order = hl_types::OrderWire::limit_buy(btc_idx, "1", "0.001")
-        .cloid(&cloid)
-        .build();
+    let order = hl_types::OrderWire::limit_buy(
+        btc_idx,
+        Decimal::from(1),
+        Decimal::from_str("0.001").unwrap(),
+    )
+    .cloid(&cloid)
+    .build()
+    .unwrap();
 
     let resp = executor
         .place_order(order, None)
@@ -130,17 +149,32 @@ async fn live_modify_order() {
         .expect("BTC asset index not found");
 
     // Place a BTC buy at $1
-    let order = hl_types::OrderWire::limit_buy(btc_idx, "1", "0.001").build();
+    let order = hl_types::OrderWire::limit_buy(
+        btc_idx,
+        Decimal::from(1),
+        Decimal::from_str("0.001").unwrap(),
+    )
+    .build()
+    .unwrap();
     let resp = executor
         .place_order(order, None)
         .await
         .expect("place_order failed");
     assert_eq!(resp.status, hl_types::OrderStatus::Open);
 
-    let oid: u64 = resp.order_id.parse().expect("failed to parse order_id to u64");
+    let oid: u64 = resp
+        .order_id
+        .parse()
+        .expect("failed to parse order_id to u64");
 
     // Modify the order: change price to $2, same size
-    let new_order = hl_types::OrderWire::limit_buy(btc_idx, "2", "0.001").build();
+    let new_order = hl_types::OrderWire::limit_buy(
+        btc_idx,
+        Decimal::from(2),
+        Decimal::from_str("0.001").unwrap(),
+    )
+    .build()
+    .unwrap();
     let modify_resp = executor
         .modify_order(oid, new_order, None)
         .await

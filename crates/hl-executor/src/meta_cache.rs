@@ -63,6 +63,23 @@ impl AssetMetaCache {
     pub fn sz_decimals(&self, coin: &str) -> Option<u32> {
         self.coin_to_sz_decimals.get(&coin.to_uppercase()).copied()
     }
+
+    /// Resolve a coin name to its asset index without uppercasing.
+    ///
+    /// The caller is responsible for passing a pre-normalized (uppercase) coin
+    /// name. This avoids a redundant allocation on the hot path when the input
+    /// is already known to be uppercase.
+    pub(crate) fn asset_index_normalized(&self, coin: &str) -> Option<u32> {
+        self.coin_to_index.get(coin).copied()
+    }
+
+    /// Look up the size-decimal precision without uppercasing.
+    ///
+    /// Same pre-normalization requirement as [`Self::asset_index_normalized`].
+    #[allow(dead_code)]
+    pub(crate) fn sz_decimals_normalized(&self, coin: &str) -> Option<u32> {
+        self.coin_to_sz_decimals.get(coin).copied()
+    }
 }
 
 #[cfg(test)]
@@ -128,6 +145,18 @@ mod tests {
     fn sz_decimals_not_found() {
         let cache = test_cache();
         assert_eq!(cache.sz_decimals("UNKNOWN"), None);
+    }
+
+    #[test]
+    fn asset_index_normalized_exact_match() {
+        let cache = test_cache();
+        assert_eq!(cache.asset_index_normalized("BTC"), Some(0));
+    }
+
+    #[test]
+    fn asset_index_normalized_wrong_case_fails() {
+        let cache = test_cache();
+        assert_eq!(cache.asset_index_normalized("btc"), None);
     }
 
     #[test]

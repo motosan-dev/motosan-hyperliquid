@@ -26,3 +26,37 @@ hl-market = { workspace = true, optional = true }
 hl-account = { workspace = true, optional = true }
 hl-executor = { workspace = true, optional = true }
 hl-signing = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+rust_decimal.workspace = true
+
+[[example]]
+name = "ws_stream"
+path = "../../examples/ws_stream.rs"
+required-features = ["ws"]
+
+[[example]]
+name = "trigger_order"
+path = "../../examples/trigger_order.rs"
+required-features = ["executor", "signing"]
+
+[[example]]
+name = "place_order"
+path = "../../examples/place_order.rs"
+required-features = ["executor", "signing"]
+
+[[example]]
+name = "check_account"
+path = "../../examples/check_account.rs"
+required-features = ["account", "signing"]
+
+[[example]]
+name = "query_market"
+path = "../../examples/query_market.rs"
+required-features = ["market"]
+
+[[example]]
+name = "shared_client"
+path = "../../examples/shared_client.rs"
+required-features = ["market", "account"]

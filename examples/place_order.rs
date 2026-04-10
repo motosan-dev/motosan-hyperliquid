@@ -17,10 +17,12 @@
 //! cargo run --example place_order
 //! ```
 
+use std::str::FromStr;
 use hl_client::HyperliquidClient;
 use hl_executor::OrderExecutor;
 use hl_signing::PrivateKeySigner;
 use hl_types::{OrderStatus, OrderWire, Tif};
+use rust_decimal::Decimal;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,10 +54,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Build Order ──────────────────────────────────────────
     // A GTC limit buy at a price well below market (unlikely to fill immediately)
-    let order = OrderWire::limit_buy(btc_idx, "10000.0", "0.001")
+    let limit_px = Decimal::from_str("10000.0")?;
+    let sz = Decimal::from_str("0.001")?;
+    let order = OrderWire::limit_buy(btc_idx, limit_px, sz)
         .tif(Tif::Gtc)
         .cloid(HyperliquidClient::generate_cloid())
-        .build();
+        .build()?;
 
     println!(
         "\nSubmitting: {} BTC {} @ {} (tif=Gtc)",
@@ -82,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let oid: u64 = response.order_id.parse().unwrap_or(0);
         if oid > 0 {
             let cancel_result = executor.cancel_order(btc_idx, oid, None).await?;
-            println!("  Cancel result: {}", cancel_result);
+            println!("  Cancel result: {}", cancel_result.status);
         }
     }
 
