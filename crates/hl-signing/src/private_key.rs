@@ -54,6 +54,13 @@ impl Signer for PrivateKeySigner {
     }
 }
 
+impl Drop for PrivateKeySigner {
+    fn drop(&mut self) {
+        // SigningKey::drop() zeros the secret scalar when k256's `zeroize`
+        // feature is enabled. No other secret material in this struct.
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,5 +147,11 @@ mod tests {
         let s1 = PrivateKeySigner::from_hex(TEST_KEY).unwrap();
         let s2 = PrivateKeySigner::from_hex(&format!("0x{TEST_KEY}")).unwrap();
         assert_eq!(s1.address(), s2.address());
+    }
+
+    #[test]
+    fn drop_does_not_panic() {
+        let signer = PrivateKeySigner::from_hex(TEST_KEY).unwrap();
+        drop(signer);
     }
 }

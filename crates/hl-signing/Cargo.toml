@@ -12,12 +12,13 @@ description = "Hyperliquid EIP-712 signing — Signer trait, PrivateKeySigner, a
 
 [features]
 default = ["k256-signer"]
-k256-signer = ["dep:k256"]
+k256-signer = ["dep:k256", "dep:zeroize"]
 live-test = []
 
 [dependencies]
 hl-types.workspace = true
 k256 = { version = "0.13", features = ["ecdsa"], optional = true }
+zeroize = { version = "1", optional = true }
 sha3 = "0.10"
 hex = "0.4"
 motosan-wallet-core = { version = "0.5.0", features = ["hyperliquid"] }
