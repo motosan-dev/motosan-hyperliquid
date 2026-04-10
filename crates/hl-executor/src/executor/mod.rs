@@ -10,6 +10,7 @@ use hl_types::*;
 
 use crate::meta_cache::AssetMetaCache;
 
+pub mod admin;
 pub mod cancel;
 pub mod leverage;
 pub mod modify;
