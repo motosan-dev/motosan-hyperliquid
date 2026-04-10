@@ -13,11 +13,7 @@ impl OrderExecutor {
         agent_name: Option<&str>,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() {
-            "Mainnet"
-        } else {
-            "Testnet"
-        };
+        let chain = self.chain_name();
         let nonce = self.next_nonce();
         let mut action = serde_json::json!({
             "type": "approveAgent",
@@ -62,18 +58,7 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected approveAgent: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("approve_agent response: {e}")))
+        Self::check_and_parse_response(result, "approveAgent")
     }
 
     /// Schedule cancellation of all open orders at a future time.
@@ -129,11 +114,7 @@ impl OrderExecutor {
         max_fee_rate: &str,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() {
-            "Mainnet"
-        } else {
-            "Testnet"
-        };
+        let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "approveBuilderFee",
@@ -165,18 +146,7 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected approveBuilderFee: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("approve_builder_fee response: {e}")))
+        Self::check_and_parse_response(result, "approveBuilderFee")
     }
 
     /// Modify EVM user configuration.

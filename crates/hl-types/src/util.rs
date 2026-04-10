@@ -27,18 +27,18 @@ pub fn parse_str_decimal(val: Option<&serde_json::Value>, field: &str) -> Result
     }
 }
 
-/// Normalize a coin symbol by stripping common suffixes.
+/// Normalize a coin symbol by stripping common suffixes and uppercasing.
 ///
-/// Removes `-PERP`, `-USDC`, and `-USD` suffixes so that e.g.
-/// `"BTC-PERP"` becomes `"BTC"`.
+/// Removes `-PERP`, `-USDC`, and `-USD` suffixes and converts to uppercase
+/// so that e.g. `"BTC-PERP"` becomes `"BTC"` and `"btc"` becomes `"BTC"`.
 pub fn normalize_coin(coin: &str) -> String {
     let s = coin.trim();
     for suffix in &["-PERP", "-USDC", "-USD"] {
         if let Some(stripped) = s.strip_suffix(suffix) {
-            return stripped.to_string();
+            return stripped.to_uppercase();
         }
     }
-    s.to_string()
+    s.to_uppercase()
 }
 
 /// Parse the mid price from an `l2Book` JSON response.
@@ -268,5 +268,15 @@ mod tests {
     fn position_szi_missing_asset_positions() {
         let resp = serde_json::json!({});
         assert!(parse_position_szi(&resp, "BTC").is_err());
+    }
+
+    #[test]
+    fn lowercase_input_uppercased() {
+        assert_eq!(normalize_coin("btc-PERP"), "BTC");
+    }
+
+    #[test]
+    fn mixed_case_no_suffix() {
+        assert_eq!(normalize_coin("Eth"), "ETH");
     }
 }
