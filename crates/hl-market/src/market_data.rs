@@ -4,7 +4,10 @@ use std::sync::Arc;
 use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
-use hl_types::{normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook};
+use hl_types::{
+    normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook, HlSpotAssetInfo,
+    HlSpotMeta,
+};
 
 /// Typed interface for Hyperliquid market data queries.
 ///
@@ -79,6 +82,14 @@ impl MarketData {
         let payload = serde_json::json!({ "type": "metaAndAssetCtxs" });
         let resp = self.client.post_info(payload).await?;
         parse_funding_rates(&resp)
+    }
+
+    /// Fetch spot market universe metadata.
+    #[tracing::instrument(skip(self))]
+    pub async fn spot_meta(&self) -> Result<HlSpotMeta, HlError> {
+        let payload = serde_json::json!({ "type": "spotMeta" });
+        let resp = self.client.post_info(payload).await?;
+        parse_spot_meta(&resp)
     }
 
     /// Compute the mid-price for a coin from its current orderbook.
@@ -333,6 +344,45 @@ pub fn parse_funding_rates(response: &serde_json::Value) -> Result<Vec<HlFunding
     }
 
     Ok(result)
+}
+
+/// Parse a `spotMeta` response into an `HlSpotMeta`.
+///
+/// The response contains a `tokens` array:
+///   `{ "tokens": [{ "name": "PURR", "index": 1, "szDecimals": 0, "weiDecimals": 18 }, ...], ... }`
+///
+/// Extra top-level fields (e.g. `universe`) are ignored.
+pub fn parse_spot_meta(response: &serde_json::Value) -> Result<HlSpotMeta, HlError> {
+    let tokens_arr = response
+        .get("tokens")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| parse_err("spotMeta response missing 'tokens' array"))?;
+
+    let mut tokens = Vec::with_capacity(tokens_arr.len());
+    for item in tokens_arr {
+        let name = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| parse_err("missing 'name' in spot token entry"))?
+            .to_string();
+
+        let index = item
+            .get("index")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| parse_err("missing 'index' in spot token entry"))?
+            as u32;
+
+        let sz_decimals = item.get("szDecimals").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+        let wei_decimals = item
+            .get("weiDecimals")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(18) as u32;
+
+        tokens.push(HlSpotAssetInfo::new(name, index, sz_decimals, wei_decimals));
+    }
+
+    Ok(HlSpotMeta::new(tokens))
 }
 
 /// Convert a candle interval string to its duration in milliseconds.
@@ -685,6 +735,65 @@ mod tests {
 
         let mid = market.mid_price("TEST").await.unwrap();
         assert_eq!(mid, Decimal::from_str("101.0").unwrap());
+    }
+
+    #[test]
+    fn test_parse_spot_meta_valid() {
+        let json = serde_json::json!({
+            "tokens": [
+                { "name": "PURR", "index": 1, "szDecimals": 0, "weiDecimals": 18 },
+                { "name": "USDC", "index": 2, "szDecimals": 2, "weiDecimals": 6 }
+            ],
+            "universe": []
+        });
+        let meta = parse_spot_meta(&json).unwrap();
+        assert_eq!(meta.tokens.len(), 2);
+        assert_eq!(meta.tokens[0].name, "PURR");
+        assert_eq!(meta.tokens[0].index, 1);
+        assert_eq!(meta.tokens[0].sz_decimals, 0);
+        assert_eq!(meta.tokens[0].wei_decimals, 18);
+        assert_eq!(meta.tokens[1].name, "USDC");
+        assert_eq!(meta.tokens[1].index, 2);
+        assert_eq!(meta.tokens[1].sz_decimals, 2);
+        assert_eq!(meta.tokens[1].wei_decimals, 6);
+    }
+
+    #[test]
+    fn test_parse_spot_meta_empty_tokens() {
+        let json = serde_json::json!({ "tokens": [] });
+        let meta = parse_spot_meta(&json).unwrap();
+        assert!(meta.tokens.is_empty());
+    }
+
+    #[test]
+    fn test_parse_spot_meta_missing_tokens() {
+        let json = serde_json::json!({ "universe": [] });
+        assert!(parse_spot_meta(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_spot_meta_missing_name_errors() {
+        let json = serde_json::json!({
+            "tokens": [{ "index": 1, "szDecimals": 0, "weiDecimals": 18 }]
+        });
+        assert!(parse_spot_meta(&json).is_err());
+    }
+
+    #[tokio::test]
+    async fn mock_transport_spot_meta() {
+        let response = serde_json::json!({
+            "tokens": [
+                { "name": "PURR", "index": 1, "szDecimals": 0, "weiDecimals": 18 }
+            ],
+            "universe": []
+        });
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let meta = market.spot_meta().await.unwrap();
+        assert_eq!(meta.tokens.len(), 1);
+        assert_eq!(meta.tokens[0].name, "PURR");
     }
 
     #[tokio::test]

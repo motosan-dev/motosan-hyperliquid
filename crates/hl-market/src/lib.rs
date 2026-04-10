@@ -5,4 +5,5 @@
 //! [`hl_types`].
 
 pub mod market_data;
+pub use market_data::parse_spot_meta;
 pub use market_data::MarketData;

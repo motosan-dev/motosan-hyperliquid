@@ -5,7 +5,8 @@ use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    HlAccountState, HlError, HlExtraAgent, HlFill, HlPosition, HlVaultDetails, HlVaultSummary,
+    HlAccountState, HlError, HlExtraAgent, HlFill, HlPosition, HlSpotBalance, HlVaultDetails,
+    HlVaultSummary,
 };
 
 /// Typed interface for Hyperliquid account state queries.
@@ -38,6 +39,17 @@ impl Account {
         });
         let resp = self.client.post_info(payload).await?;
         parse_account_state(&resp)
+    }
+
+    /// Fetch spot token balances for an address.
+    #[tracing::instrument(skip(self))]
+    pub async fn spot_state(&self, address: &str) -> Result<Vec<HlSpotBalance>, HlError> {
+        let payload = serde_json::json!({
+            "type": "spotClearinghouseState",
+            "user": address,
+        });
+        let resp = self.client.post_info(payload).await?;
+        parse_spot_state(&resp)
     }
 
     /// Fetch only the open positions for an address.
@@ -355,6 +367,50 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
     Ok(fills)
 }
 
+/// Parse a `spotClearinghouseState` JSON response into a [`Vec<HlSpotBalance>`].
+///
+/// The response contains a `balances` array:
+///   `{ "balances": [{ "coin": "PURR", "token": 1, "hold": "0", "total": "1000.0" }, ...] }`
+pub fn parse_spot_state(resp: &serde_json::Value) -> Result<Vec<HlSpotBalance>, HlError> {
+    let balances_arr = resp
+        .get("balances")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| HlError::Parse("missing 'balances' in spotClearinghouseState".into()))?;
+
+    let mut balances = Vec::with_capacity(balances_arr.len());
+    for item in balances_arr {
+        let coin = match item.get("coin").and_then(|v| v.as_str()) {
+            Some(c) if !c.is_empty() => c.to_string(),
+            _ => {
+                tracing::warn!("Skipping spot balance with missing or empty coin field");
+                continue;
+            }
+        };
+
+        let token = item
+            .get("token")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| HlError::Parse("missing 'token' in spot balance".into()))?
+            as u32;
+
+        let hold = parse_str_decimal(
+            item.get("hold")
+                .ok_or_else(|| HlError::Parse("missing 'hold' in spot balance".into()))?,
+            "hold",
+        )?;
+
+        let total = parse_str_decimal(
+            item.get("total")
+                .ok_or_else(|| HlError::Parse("missing 'total' in spot balance".into()))?,
+            "total",
+        )?;
+
+        balances.push(HlSpotBalance::new(coin, token, hold, total));
+    }
+
+    Ok(balances)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -570,6 +626,62 @@ mod tests {
             // "time" missing
         }]);
         assert!(parse_fills(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_spot_state_valid() {
+        let resp = serde_json::json!({
+            "balances": [
+                { "coin": "PURR", "token": 1, "hold": "0", "total": "1000.0" },
+                { "coin": "USDC", "token": 2, "hold": "50.0", "total": "500.0" }
+            ]
+        });
+        let balances = parse_spot_state(&resp).unwrap();
+        assert_eq!(balances.len(), 2);
+        assert_eq!(balances[0].coin, "PURR");
+        assert_eq!(balances[0].token, 1);
+        assert_eq!(balances[0].hold, Decimal::ZERO);
+        assert_eq!(balances[0].total, Decimal::from_str("1000.0").unwrap());
+        assert_eq!(balances[1].coin, "USDC");
+        assert_eq!(balances[1].token, 2);
+        assert_eq!(balances[1].hold, Decimal::from_str("50.0").unwrap());
+        assert_eq!(balances[1].total, Decimal::from_str("500.0").unwrap());
+    }
+
+    #[test]
+    fn parse_spot_state_empty_balances() {
+        let resp = serde_json::json!({ "balances": [] });
+        let balances = parse_spot_state(&resp).unwrap();
+        assert!(balances.is_empty());
+    }
+
+    #[test]
+    fn parse_spot_state_missing_balances_errors() {
+        let resp = serde_json::json!({});
+        assert!(parse_spot_state(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_spot_state_skips_empty_coin() {
+        let resp = serde_json::json!({
+            "balances": [
+                { "coin": "", "token": 0, "hold": "0", "total": "0" },
+                { "coin": "PURR", "token": 1, "hold": "0", "total": "100.0" }
+            ]
+        });
+        let balances = parse_spot_state(&resp).unwrap();
+        assert_eq!(balances.len(), 1);
+        assert_eq!(balances[0].coin, "PURR");
+    }
+
+    #[test]
+    fn parse_spot_state_missing_token_errors() {
+        let resp = serde_json::json!({
+            "balances": [
+                { "coin": "PURR", "hold": "0", "total": "100.0" }
+            ]
+        });
+        assert!(parse_spot_state(&resp).is_err());
     }
 
     #[test]
