@@ -7,7 +7,7 @@ use rust_decimal::Decimal;
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
     normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook, HlPerpDexStatus,
-    HlSpotAssetInfo, HlSpotMeta, HlTrade,
+    HlSpotAssetInfo, HlSpotMeta, HlTrade, TradeSide,
 };
 
 /// Typed interface for Hyperliquid market data queries.
@@ -487,11 +487,12 @@ pub fn parse_recent_trades(response: &serde_json::Value) -> Result<Vec<HlTrade>,
             .ok_or_else(|| parse_err("missing 'coin' in trade entry"))?
             .to_string();
 
-        let side = item
-            .get("side")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| parse_err("missing 'side' in trade entry"))?
-            .to_string();
+        let side = match item.get("side").and_then(|v| v.as_str()) {
+            Some("B") => TradeSide::Buy,
+            Some("A") => TradeSide::Sell,
+            Some(other) => return Err(parse_err(format!("unknown trade side: {}", other))),
+            None => return Err(parse_err("missing 'side' in trade entry")),
+        };
 
         let px = parse_str_decimal(item.get("px"), "px")?;
         let sz = parse_str_decimal(item.get("sz"), "sz")?;
@@ -842,11 +843,11 @@ mod tests {
         let trades = parse_recent_trades(&json).unwrap();
         assert_eq!(trades.len(), 2);
         assert_eq!(trades[0].coin, "BTC");
-        assert_eq!(trades[0].side, "B");
+        assert_eq!(trades[0].side, TradeSide::Buy);
         assert_eq!(trades[0].px, Decimal::from_str("94000.0").unwrap());
         assert_eq!(trades[0].sz, Decimal::from_str("0.1").unwrap());
         assert_eq!(trades[0].time, 1700000000000);
-        assert_eq!(trades[1].side, "A");
+        assert_eq!(trades[1].side, TradeSide::Sell);
         assert_eq!(trades[1].px, Decimal::from_str("94001.5").unwrap());
         assert_eq!(trades[1].sz, Decimal::from_str("0.25").unwrap());
         assert_eq!(trades[1].time, 1700000001000);
@@ -1094,7 +1095,7 @@ mod tests {
         let trades = market.recent_trades("BTC-PERP").await.unwrap();
         assert_eq!(trades.len(), 1);
         assert_eq!(trades[0].coin, "BTC");
-        assert_eq!(trades[0].side, "B");
+        assert_eq!(trades[0].side, TradeSide::Buy);
         assert_eq!(trades[0].px, Decimal::from_str("94000.0").unwrap());
     }
 
