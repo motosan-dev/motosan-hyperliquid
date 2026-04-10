@@ -10,7 +10,7 @@ fn account() -> (Account, String) {
     let signer = hl_signing::PrivateKeySigner::from_hex(&key).unwrap();
     let address = signer.address().to_string();
     let client = HyperliquidClient::testnet().unwrap();
-    (Account::new(client), address)
+    (Account::from_client(client), address)
 }
 
 #[tokio::test]

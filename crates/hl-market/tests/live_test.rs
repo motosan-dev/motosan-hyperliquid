@@ -6,7 +6,7 @@ use hl_types::Decimal;
 
 fn market() -> MarketData {
     let client = HyperliquidClient::testnet().unwrap();
-    MarketData::new(client)
+    MarketData::from_client(client)
 }
 
 #[tokio::test]

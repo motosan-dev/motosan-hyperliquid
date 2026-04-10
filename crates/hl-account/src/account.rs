@@ -1,21 +1,30 @@
-use rust_decimal::Decimal;
 use std::str::FromStr;
+use std::sync::Arc;
 
-use hl_client::HyperliquidClient;
+use rust_decimal::Decimal;
+
+use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{HlAccountState, HlError, HlFill, HlPosition};
 
 /// Typed interface for Hyperliquid account state queries.
 ///
-/// Wraps a [`HyperliquidClient`] and provides methods to fetch positions,
+/// Wraps an [`HttpTransport`] and provides methods to fetch positions,
 /// fills, vault information, and agent approvals for any public address.
 pub struct Account {
-    client: HyperliquidClient,
+    client: Arc<dyn HttpTransport>,
 }
 
 impl Account {
-    /// Create a new `Account` instance wrapping the given client.
-    pub fn new(client: HyperliquidClient) -> Self {
+    /// Create a new `Account` instance wrapping an [`HttpTransport`].
+    pub fn new(client: Arc<dyn HttpTransport>) -> Self {
         Self { client }
+    }
+
+    /// Convenience constructor that wraps a [`HyperliquidClient`] in an `Arc`.
+    pub fn from_client(client: HyperliquidClient) -> Self {
+        Self {
+            client: Arc::new(client),
+        }
     }
 
     /// Fetch the full clearinghouse state for an address.

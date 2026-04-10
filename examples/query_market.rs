@@ -21,7 +21,7 @@ use hl_market::MarketData;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a mainnet client (read-only, no key needed)
     let client = HyperliquidClient::mainnet()?;
-    let market = MarketData::new(client);
+    let market = MarketData::from_client(client);
 
     // ── Candles ──────────────────────────────────────────────
     println!("=== BTC 1h Candles (last 5) ===");

@@ -1,21 +1,30 @@
-use rust_decimal::Decimal;
 use std::str::FromStr;
+use std::sync::Arc;
 
-use hl_client::HyperliquidClient;
+use rust_decimal::Decimal;
+
+use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{normalize_coin, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook};
 
 /// Typed interface for Hyperliquid market data queries.
 ///
-/// Wraps a [`HyperliquidClient`] and provides methods to fetch candles,
+/// Wraps an [`HttpTransport`] and provides methods to fetch candles,
 /// orderbook snapshots, mid-prices, asset metadata, and funding rates.
 pub struct MarketData {
-    client: HyperliquidClient,
+    client: Arc<dyn HttpTransport>,
 }
 
 impl MarketData {
-    /// Create a new `MarketData` instance wrapping the given client.
-    pub fn new(client: HyperliquidClient) -> Self {
+    /// Create a new `MarketData` instance wrapping an [`HttpTransport`].
+    pub fn new(client: Arc<dyn HttpTransport>) -> Self {
         Self { client }
+    }
+
+    /// Convenience constructor that wraps a [`HyperliquidClient`] in an `Arc`.
+    pub fn from_client(client: HyperliquidClient) -> Self {
+        Self {
+            client: Arc::new(client),
+        }
     }
 
     /// Fetch OHLCV candle snapshots for a given coin, interval, and limit.
@@ -586,5 +595,109 @@ mod tests {
             rates[1].funding_rate,
             Decimal::from_str("-0.00005").unwrap()
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Mock transport tests — demonstrate unit testing without real HTTP calls
+    // -----------------------------------------------------------------------
+
+    use async_trait::async_trait;
+    use hl_client::HttpTransport;
+    use hl_types::Signature;
+    use std::sync::Mutex;
+
+    /// A mock HTTP transport that returns pre-configured JSON responses.
+    struct MockTransport {
+        responses: Mutex<Vec<serde_json::Value>>,
+    }
+
+    impl MockTransport {
+        fn new(responses: Vec<serde_json::Value>) -> Self {
+            Self {
+                responses: Mutex::new(responses),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for MockTransport {
+        async fn post_info(
+            &self,
+            _request: serde_json::Value,
+        ) -> Result<serde_json::Value, HlError> {
+            let mut queue = self.responses.lock().unwrap();
+            if queue.is_empty() {
+                return Err(HlError::Http("no more mock responses".into()));
+            }
+            Ok(queue.remove(0))
+        }
+
+        async fn post_action(
+            &self,
+            _action: serde_json::Value,
+            _signature: &Signature,
+            _nonce: u64,
+            _vault_address: Option<&str>,
+        ) -> Result<serde_json::Value, HlError> {
+            unimplemented!("mock does not support post_action")
+        }
+
+        fn is_mainnet(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn mock_transport_orderbook() {
+        let response = serde_json::json!({
+            "levels": [
+                [
+                    {"px": "60000.0", "sz": "1.0", "n": 1},
+                    {"px": "59999.0", "sz": "2.0", "n": 2}
+                ],
+                [
+                    {"px": "60001.0", "sz": "0.5", "n": 1},
+                    {"px": "60002.0", "sz": "1.5", "n": 1}
+                ]
+            ],
+            "time": 1700000000000_u64
+        });
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let book = market.orderbook("BTC").await.unwrap();
+        assert_eq!(book.coin, "BTC");
+        assert_eq!(book.bids.len(), 2);
+        assert_eq!(book.asks.len(), 2);
+        assert_eq!(book.bids[0].0, Decimal::from_str("60000.0").unwrap());
+        assert_eq!(book.asks[0].0, Decimal::from_str("60001.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn mock_transport_mid_price() {
+        let response = serde_json::json!({
+            "levels": [
+                [{"px": "100.0", "sz": "1.0", "n": 1}],
+                [{"px": "102.0", "sz": "1.0", "n": 1}]
+            ],
+            "time": 1700000000000_u64
+        });
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let mid = market.mid_price("TEST").await.unwrap();
+        assert_eq!(mid, Decimal::from_str("101.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn mock_transport_error_propagation() {
+        // Empty response queue triggers an error
+        let transport = Arc::new(MockTransport::new(vec![]));
+        let market = MarketData::new(transport);
+
+        let result = market.orderbook("BTC").await;
+        assert!(result.is_err());
     }
 }
