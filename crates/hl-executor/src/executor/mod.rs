@@ -23,10 +23,10 @@ pub mod twap;
 
 /// Normalize a market symbol to its base coin name.
 ///
-/// Uses [`hl_types::normalize_coin`] to strip common suffixes (-PERP, -USDC,
-/// -USD) and then uppercases the result.
+/// Delegates to [`hl_types::normalize_coin`] which strips common suffixes
+/// (-PERP, -USDC, -USD) and uppercases the result.
 pub(crate) fn normalize_symbol(symbol: &str) -> String {
-    normalize_coin(symbol).to_uppercase()
+    normalize_coin(symbol)
 }
 
 /// The fill-size threshold ratio used to distinguish "filled" from "partial".
