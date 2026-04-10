@@ -99,4 +99,20 @@ impl OrderExecutor {
         serde_json::from_value(result)
             .map_err(|e| HlError::Parse(format!("claim_rewards response: {e}")))
     }
+
+    /// Set a referrer code for this account.
+    ///
+    /// This is a one-time action per account. Once a referrer code is set it
+    /// cannot be changed.
+    #[tracing::instrument(skip(self))]
+    pub async fn set_referrer(
+        &self,
+        code: &str,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        let action = serde_json::json!({"type": "setReferrer", "code": code});
+        let result = self.send_signed_action(action, vault).await?;
+        serde_json::from_value(result)
+            .map_err(|e| HlError::Parse(format!("set_referrer response: {e}")))
+    }
 }
