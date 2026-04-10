@@ -104,17 +104,6 @@ impl OrderExecutor {
             .post_action(action, &signature, nonce, vault)
             .await?;
 
-        let api_status = result
-            .get("status")
-            .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
-        if api_status != "ok" {
-            return Err(HlError::Rejected {
-                reason: format!("Exchange rejected subAccountTransfer: {}", result),
-            });
-        }
-
-        serde_json::from_value(result)
-            .map_err(|e| HlError::Parse(format!("sub_account_transfer response: {e}")))
+        Self::check_and_parse_response(result, "subAccountTransfer")
     }
 }

@@ -41,7 +41,7 @@ impl MarketData {
         interval: &str,
         limit: usize,
     ) -> Result<Vec<HlCandle>, HlError> {
-        let coin = normalize_coin(coin).to_uppercase();
+        let coin = normalize_coin(coin);
         let interval_ms = interval_to_ms(interval)?;
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
         let start_ms = now_ms.saturating_sub((limit as u64) * interval_ms);
@@ -62,7 +62,7 @@ impl MarketData {
     /// Fetch the L2 orderbook for a given coin.
     #[tracing::instrument(skip(self))]
     pub async fn orderbook(&self, coin: &str) -> Result<HlOrderbook, HlError> {
-        let coin = normalize_coin(coin).to_uppercase();
+        let coin = normalize_coin(coin);
         let payload = serde_json::json!({ "type": "l2Book", "coin": coin });
         let resp = self.client.post_info(payload).await?;
         parse_orderbook(&resp, &coin)
@@ -95,7 +95,7 @@ impl MarketData {
     /// Fetch recent trades for a coin.
     #[tracing::instrument(skip(self))]
     pub async fn recent_trades(&self, coin: &str) -> Result<Vec<HlTrade>, HlError> {
-        let coin = normalize_coin(coin).to_uppercase();
+        let coin = normalize_coin(coin);
         let payload = serde_json::json!({ "type": "recentTrades", "coin": coin });
         let resp = self.client.post_info(payload).await?;
         parse_recent_trades(&resp)

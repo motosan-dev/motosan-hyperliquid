@@ -6,7 +6,7 @@ use rust_decimal::Decimal;
 
 use hl_client::HttpTransport;
 use hl_signing::{sign_l1_action, Signer};
-use hl_types::{normalize_coin, HlError};
+use hl_types::{normalize_coin, HlActionResponse, HlError};
 
 use crate::meta_cache::AssetMetaCache;
 
@@ -23,10 +23,10 @@ pub mod twap;
 
 /// Normalize a market symbol to its base coin name.
 ///
-/// Uses [`hl_types::normalize_coin`] to strip common suffixes (-PERP, -USDC,
-/// -USD) and then uppercases the result.
+/// Delegates to [`hl_types::normalize_coin`] which strips common suffixes
+/// (-PERP, -USDC, -USD) and uppercases the result.
 pub(crate) fn normalize_symbol(symbol: &str) -> String {
-    normalize_coin(symbol).to_uppercase()
+    normalize_coin(symbol)
 }
 
 /// The fill-size threshold ratio used to distinguish "filled" from "partial".
@@ -106,6 +106,15 @@ impl OrderExecutor {
         Self::with_meta_cache(Arc::new(client), signer, address, meta_cache)
     }
 
+    /// Return the Hyperliquid chain name for EIP-712 signing.
+    pub(crate) fn chain_name(&self) -> &'static str {
+        if self.client.is_mainnet() {
+            "Mainnet"
+        } else {
+            "Testnet"
+        }
+    }
+
     /// Generate a monotonically increasing nonce based on the current time in
     /// milliseconds since the UNIX epoch.
     pub(crate) fn next_nonce(&self) -> u64 {
@@ -170,6 +179,27 @@ impl OrderExecutor {
             .ok_or_else(|| {
                 HlError::Parse(format!("Asset '{}' not found in exchange universe", symbol))
             })
+    }
+
+    /// Check the API response status and parse into an [`HlActionResponse`].
+    ///
+    /// User-signed actions (EIP-712) bypass `send_signed_action` and post
+    /// directly via `client.post_action`, so they need their own status check.
+    pub(crate) fn check_and_parse_response(
+        result: serde_json::Value,
+        context: &str,
+    ) -> Result<HlActionResponse, HlError> {
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        if api_status != "ok" {
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected {}: {}", context, result),
+            });
+        }
+        serde_json::from_value(result)
+            .map_err(|e| HlError::Parse(format!("{} response: {e}", context)))
     }
 
     /// Borrow the underlying HTTP transport.
