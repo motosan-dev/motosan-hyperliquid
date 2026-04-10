@@ -142,3 +142,33 @@ pub(crate) fn parse_bulk_order_response(
     }
     Ok(out)
 }
+
+/// Parse a bulk order response using per-order fallback values.
+///
+/// Each entry in `fallbacks` is `(fallback_price, fallback_size)` corresponding
+/// to the order at the same index. If there are more statuses than fallbacks,
+/// extra statuses use `Decimal::ZERO` as fallback.
+pub(crate) fn parse_bulk_order_response_with_fallbacks(
+    result: &serde_json::Value,
+    fallbacks: &[(Decimal, Decimal)],
+) -> Result<Vec<(String, Decimal, Decimal)>, HlError> {
+    let statuses = result
+        .get("response")
+        .and_then(|r| r.get("data"))
+        .and_then(|d| d.get("statuses"))
+        .and_then(|s| s.as_array())
+        .ok_or_else(|| {
+            HlError::Parse("exchange returned ok but statuses array is missing".into())
+        })?;
+
+    let mut out = Vec::with_capacity(statuses.len());
+    for (i, entry) in statuses.iter().enumerate() {
+        let parsed = parse_single_status(entry)?;
+        let (fp, fs) = fallbacks
+            .get(i)
+            .copied()
+            .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+        out.push(resolve_status(parsed, fp, fs));
+    }
+    Ok(out)
+}

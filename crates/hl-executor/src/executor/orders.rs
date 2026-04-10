@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 
 use hl_types::*;
 
-use super::response::parse_order_response;
+use super::response::{parse_order_response, parse_bulk_order_response_with_fallbacks};
 use super::{OrderExecutor, FILL_THRESHOLD};
 
 /// Build wire-format JSON from an [`OrderWire`].
@@ -239,5 +239,83 @@ impl OrderExecutor {
         let resp = self.client.post_action(action, &sig, nonce, None).await?;
         serde_json::from_value(resp)
             .map_err(|e| HlError::Parse(format!("transfer_to_vault response: {e}")))
+    }
+
+    /// Place multiple orders in a single signed action.
+    #[tracing::instrument(skip(self, orders), fields(count = orders.len()))]
+    pub async fn bulk_order(
+        &self,
+        orders: Vec<OrderWire>,
+        vault: Option<&str>,
+    ) -> Result<Vec<OrderResponse>, HlError> {
+        if orders.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut order_jsons = Vec::with_capacity(orders.len());
+        let mut fallbacks: Vec<(Decimal, Decimal)> = Vec::with_capacity(orders.len());
+
+        for order in &orders {
+            order_jsons.push(order_to_json(order)?);
+            fallbacks.push((
+                Decimal::from_str(&order.limit_px).unwrap_or(Decimal::ZERO),
+                Decimal::from_str(&order.sz).unwrap_or(Decimal::ZERO),
+            ));
+        }
+
+        let action = serde_json::json!({
+            "type": "order",
+            "orders": order_jsons,
+            "grouping": "na"
+        });
+
+        let result = self.send_signed_action(action, vault).await?;
+
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+
+        if api_status != "ok" {
+            return Err(HlError::Rejected {
+                reason: format!("Exchange rejected bulk order: {}", result),
+            });
+        }
+
+        let parsed = parse_bulk_order_response_with_fallbacks(&result, &fallbacks)?;
+
+        let mut responses = Vec::with_capacity(parsed.len());
+        for (i, (order_id, fill_price, fill_size)) in parsed.into_iter().enumerate() {
+            let (_, fallback_size) = fallbacks
+                .get(i)
+                .copied()
+                .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+            let status = determine_status(fill_size, fallback_size, &order_id);
+            responses.push(OrderResponse::new(
+                order_id,
+                if fill_size > Decimal::ZERO {
+                    Some(fill_price)
+                } else {
+                    None
+                },
+                fill_size,
+                fallback_size,
+                status,
+            ));
+        }
+
+        Ok(responses)
+    }
+
+    /// Like `place_order` but resolves the asset index from a symbol string.
+    #[tracing::instrument(skip(self, order))]
+    pub async fn place_order_by_symbol(
+        &self,
+        symbol: &str,
+        mut order: OrderWire,
+        vault: Option<&str>,
+    ) -> Result<OrderResponse, HlError> {
+        order.asset = self.resolve_asset(symbol)?;
+        self.place_order(order, vault).await
     }
 }
