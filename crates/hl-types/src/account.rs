@@ -176,6 +176,57 @@ pub struct HlExtraAgent {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// A staking delegation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlStakingDelegation {
+    /// Validator address.
+    pub validator: String,
+    /// Amount delegated.
+    pub amount: Decimal,
+    /// Pending rewards.
+    pub rewards: Decimal,
+}
+
+impl HlStakingDelegation {
+    /// Creates a new `HlStakingDelegation`.
+    pub fn new(validator: String, amount: Decimal, rewards: Decimal) -> Self {
+        Self {
+            validator,
+            amount,
+            rewards,
+        }
+    }
+}
+
+/// Borrow/lend position.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlBorrowLendState {
+    /// Token/coin name.
+    pub coin: String,
+    /// Amount supplied/lent.
+    pub supply: Decimal,
+    /// Amount borrowed.
+    pub borrow: Decimal,
+    /// Current APY rate.
+    pub apy: Decimal,
+}
+
+impl HlBorrowLendState {
+    /// Creates a new `HlBorrowLendState`.
+    pub fn new(coin: String, supply: Decimal, borrow: Decimal, apy: Decimal) -> Self {
+        Self {
+            coin,
+            supply,
+            borrow,
+            apy,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,6 +515,79 @@ mod tests {
         });
         let parsed: HlExtraAgent = serde_json::from_value(json).unwrap();
         assert!(parsed.extra.contains_key("permissions"));
+    }
+
+    #[test]
+    fn staking_delegation_serde_roundtrip() {
+        let delegation = HlStakingDelegation {
+            validator: "0xval1".into(),
+            amount: Decimal::from_str("1000.0").unwrap(),
+            rewards: Decimal::from_str("5.25").unwrap(),
+        };
+        let json = serde_json::to_string(&delegation).unwrap();
+        let parsed: HlStakingDelegation = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.validator, "0xval1");
+        assert_eq!(parsed.amount, Decimal::from_str("1000.0").unwrap());
+        assert_eq!(parsed.rewards, Decimal::from_str("5.25").unwrap());
+    }
+
+    #[test]
+    fn staking_delegation_from_json() {
+        let json = serde_json::json!({
+            "validator": "0xabc",
+            "amount": "500.0",
+            "rewards": "2.5"
+        });
+        let parsed: HlStakingDelegation = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.validator, "0xabc");
+        assert_eq!(parsed.amount, Decimal::from_str("500.0").unwrap());
+        assert_eq!(parsed.rewards, Decimal::from_str("2.5").unwrap());
+    }
+
+    #[test]
+    fn borrow_lend_state_serde_roundtrip() {
+        let state = HlBorrowLendState {
+            coin: "USDC".into(),
+            supply: Decimal::from_str("10000.0").unwrap(),
+            borrow: Decimal::from_str("5000.0").unwrap(),
+            apy: Decimal::from_str("0.05").unwrap(),
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let parsed: HlBorrowLendState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.coin, "USDC");
+        assert_eq!(parsed.supply, Decimal::from_str("10000.0").unwrap());
+        assert_eq!(parsed.borrow, Decimal::from_str("5000.0").unwrap());
+        assert_eq!(parsed.apy, Decimal::from_str("0.05").unwrap());
+    }
+
+    #[test]
+    fn borrow_lend_state_from_json() {
+        let json = serde_json::json!({
+            "coin": "ETH",
+            "supply": "100.0",
+            "borrow": "0.0",
+            "apy": "0.03"
+        });
+        let parsed: HlBorrowLendState = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.coin, "ETH");
+        assert_eq!(parsed.supply, Decimal::from_str("100.0").unwrap());
+        assert_eq!(parsed.borrow, Decimal::ZERO);
+        assert_eq!(parsed.apy, Decimal::from_str("0.03").unwrap());
+    }
+
+    #[test]
+    fn borrow_lend_state_camel_case_keys() {
+        let state = HlBorrowLendState {
+            coin: "X".into(),
+            supply: Decimal::ONE,
+            borrow: Decimal::ZERO,
+            apy: Decimal::ZERO,
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        // All fields are single-word or camelCase; just verify it serializes
+        assert!(json.contains("supply"));
+        assert!(json.contains("borrow"));
+        assert!(json.contains("apy"));
     }
 
     #[test]
