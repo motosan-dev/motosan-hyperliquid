@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 
-use hl_types::*;
+use hl_types::{HlError, OrderResponse, OrderWire, Tif};
 
 use super::OrderExecutor;
 
@@ -78,6 +78,7 @@ impl OrderExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hl_types::OrderTypeWire;
     use std::str::FromStr;
 
     /// Helper: build expected orders the same way the implementation does and

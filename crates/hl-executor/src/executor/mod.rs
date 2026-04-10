@@ -6,7 +6,7 @@ use rust_decimal::Decimal;
 
 use hl_client::HttpTransport;
 use hl_signing::{sign_l1_action, Signer};
-use hl_types::*;
+use hl_types::{normalize_coin, HlError};
 
 use crate::meta_cache::AssetMetaCache;
 
