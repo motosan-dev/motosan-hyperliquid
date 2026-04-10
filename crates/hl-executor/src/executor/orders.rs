@@ -318,4 +318,218 @@ impl OrderExecutor {
         order.asset = self.resolve_asset(symbol)?;
         self.place_order(order, vault).await
     }
+
+    /// Place a market order (IOC limit at a slippage-adjusted price).
+    ///
+    /// Market orders on Hyperliquid are implemented as IOC (immediate-or-cancel)
+    /// limit orders at a price that accounts for slippage. The mid-price is
+    /// fetched from the L2 orderbook, then adjusted:
+    /// - **Buy**: `mid * (1 + slippage)`
+    /// - **Sell**: `mid * (1 - slippage)`
+    ///
+    /// If `slippage` is `None`, a default of 5% is used.
+    #[tracing::instrument(skip(self))]
+    pub async fn market_open(
+        &self,
+        symbol: &str,
+        side: Side,
+        size: Decimal,
+        slippage: Option<Decimal>,
+        vault: Option<&str>,
+    ) -> Result<OrderResponse, HlError> {
+        let asset_idx = self.resolve_asset(symbol)?;
+        let coin = super::normalize_symbol(symbol);
+        let mid = extract_mid_price(&self.client, &coin).await?;
+
+        let slippage = slippage.unwrap_or_else(|| Decimal::new(5, 2));
+        let limit_price = if side.is_buy() {
+            mid * (Decimal::ONE + slippage)
+        } else {
+            mid * (Decimal::ONE - slippage)
+        };
+
+        let order = if side.is_buy() {
+            OrderWire::limit_buy(asset_idx, limit_price.to_string(), size.to_string())
+        } else {
+            OrderWire::limit_sell(asset_idx, limit_price.to_string(), size.to_string())
+        }
+        .tif(Tif::Ioc)
+        .build();
+
+        self.place_order(order, vault).await
+    }
+
+    /// Close an open position with a market order.
+    ///
+    /// If `size` is `None`, the current position size is queried from the
+    /// exchange via `clearinghouseState`. The close side is determined from
+    /// the position sign (long → sell, short → buy).
+    #[tracing::instrument(skip(self))]
+    pub async fn market_close(
+        &self,
+        symbol: &str,
+        size: Option<Decimal>,
+        slippage: Option<Decimal>,
+        vault: Option<&str>,
+    ) -> Result<OrderResponse, HlError> {
+        let coin = super::normalize_symbol(symbol);
+
+        let (close_side, close_size) = match size {
+            Some(sz) => {
+                // Caller must indicate direction via sign: positive = close long (sell),
+                // negative = close short (buy).
+                if sz > Decimal::ZERO {
+                    (Side::Sell, sz)
+                } else if sz < Decimal::ZERO {
+                    (Side::Buy, sz.abs())
+                } else {
+                    return Err(HlError::Parse(
+                        "market_close: size must not be zero".into(),
+                    ));
+                }
+            }
+            None => {
+                // Query current position from exchange
+                let resp = self
+                    .client
+                    .post_info(serde_json::json!({
+                        "type": "clearinghouseState",
+                        "user": self.address,
+                    }))
+                    .await?;
+
+                let (szi_side, szi_size) = extract_position_szi(&resp, &coin)?;
+                let close_side = if szi_side.is_buy() {
+                    // Position is long → sell to close
+                    Side::Sell
+                } else {
+                    // Position is short → buy to close
+                    Side::Buy
+                };
+                (close_side, szi_size)
+            }
+        };
+
+        self.market_open(symbol, close_side, close_size, slippage, vault)
+            .await
+    }
+}
+
+/// Fetch the mid-price from the L2 orderbook.
+///
+/// Queries `l2Book` for the given coin and returns `(best_bid + best_ask) / 2`.
+async fn extract_mid_price(
+    client: &std::sync::Arc<dyn hl_client::HttpTransport>,
+    coin: &str,
+) -> Result<Decimal, HlError> {
+    let resp = client
+        .post_info(serde_json::json!({
+            "type": "l2Book",
+            "coin": coin,
+        }))
+        .await?;
+
+    let levels = resp
+        .get("levels")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| HlError::Parse("l2Book response missing 'levels' array".into()))?;
+
+    if levels.len() < 2 {
+        return Err(HlError::Parse(
+            "l2Book 'levels' array has fewer than 2 entries".into(),
+        ));
+    }
+
+    let best_bid = levels[0]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|e| e.get("px"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| HlError::Parse("l2Book: missing best bid price".into()))?;
+
+    let best_ask = levels[1]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|e| e.get("px"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| HlError::Parse("l2Book: missing best ask price".into()))?;
+
+    let bid: Decimal = Decimal::from_str(best_bid)
+        .map_err(|e| HlError::Parse(format!("l2Book: invalid bid price '{}': {}", best_bid, e)))?;
+    let ask: Decimal = Decimal::from_str(best_ask)
+        .map_err(|e| HlError::Parse(format!("l2Book: invalid ask price '{}': {}", best_ask, e)))?;
+
+    Ok((bid + ask) / Decimal::from(2))
+}
+
+/// Extract a position's size and side from a `clearinghouseState` response.
+///
+/// Returns `(side, abs_size)` where `side` is the position direction (Buy = long, Sell = short).
+fn extract_position_szi(
+    resp: &serde_json::Value,
+    coin: &str,
+) -> Result<(Side, Decimal), HlError> {
+    let positions = resp
+        .get("assetPositions")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            HlError::Parse("clearinghouseState: missing 'assetPositions'".into())
+        })?;
+
+    for pos in positions {
+        let position = &pos["position"];
+        let pos_coin = position
+            .get("coin")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if pos_coin.to_uppercase() != coin.to_uppercase() {
+            continue;
+        }
+        let szi_str = position
+            .get("szi")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| HlError::Parse("clearinghouseState: missing 'szi' field".into()))?;
+        let szi: Decimal = Decimal::from_str(szi_str)
+            .map_err(|e| HlError::Parse(format!("clearinghouseState: invalid szi '{}': {}", szi_str, e)))?;
+
+        if szi.is_zero() {
+            return Err(HlError::Parse(format!(
+                "market_close: position size for {} is zero",
+                coin
+            )));
+        }
+
+        let side = if szi > Decimal::ZERO {
+            Side::Buy // long
+        } else {
+            Side::Sell // short
+        };
+        return Ok((side, szi.abs()));
+    }
+
+    Err(HlError::Parse(format!(
+        "market_close: no open position found for {}",
+        coin
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slippage_buy_increases_price() {
+        let mid = Decimal::from(90000);
+        let slippage = Decimal::new(5, 2);
+        let limit = mid * (Decimal::ONE + slippage);
+        assert_eq!(limit, Decimal::from(94500));
+    }
+
+    #[test]
+    fn slippage_sell_decreases_price() {
+        let mid = Decimal::from(90000);
+        let slippage = Decimal::new(5, 2);
+        let limit = mid * (Decimal::ONE - slippage);
+        assert_eq!(limit, Decimal::from(85500));
+    }
 }
