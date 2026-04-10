@@ -6,6 +6,12 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+rust-version = "1.75"
+repository = "https://github.com/motosan-dev/motosan-hyperliquid"
+homepage = "https://github.com/motosan-dev/motosan-hyperliquid"
+documentation = "https://docs.rs/hl-types"
+keywords = ["hyperliquid", "trading", "defi", "eip712", "dex"]
+categories = ["api-bindings", "cryptography"]
 
 [workspace.dependencies]
 hl-types = { path = "crates/hl-types", version = "0.1.0" }
