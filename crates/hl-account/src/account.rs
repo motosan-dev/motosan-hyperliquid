@@ -248,7 +248,7 @@ const ZERO_SIZE_THRESHOLD: Decimal = Decimal::from_parts(1, 0, 0, false, 12); //
 ///
 /// Hyperliquid returns numeric fields as quoted strings, e.g. `"szi": "0.001"`.
 /// Zero-size positions (|szi| < 1e-12) are skipped.
-pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, HlError> {
+pub(crate) fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, HlError> {
     let margin_summary = resp
         .get("marginSummary")
         .ok_or_else(|| HlError::Parse("missing 'marginSummary' in clearinghouseState".into()))?;
@@ -315,7 +315,7 @@ pub fn parse_account_state(resp: &serde_json::Value) -> Result<HlAccountState, H
 ///
 /// Hyperliquid returns numeric fields as quoted strings.
 /// The `side` field is `"B"` (buy) or `"A"` (ask/sell).
-pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
+pub(crate) fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
     let arr = resp
         .as_array()
         .ok_or_else(|| HlError::Parse("expected array for userFills".into()))?;
@@ -359,7 +359,7 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
 ///
 /// The response contains a `balances` array:
 ///   `{ "balances": [{ "coin": "PURR", "token": 1, "hold": "0", "total": "1000.0" }, ...] }`
-pub fn parse_spot_state(resp: &serde_json::Value) -> Result<Vec<HlSpotBalance>, HlError> {
+pub(crate) fn parse_spot_state(resp: &serde_json::Value) -> Result<Vec<HlSpotBalance>, HlError> {
     let balances_arr = resp
         .get("balances")
         .and_then(|v| v.as_array())
@@ -394,7 +394,7 @@ pub fn parse_spot_state(resp: &serde_json::Value) -> Result<Vec<HlSpotBalance>, 
 /// Parse a `stakingDelegations` JSON response into a [`Vec<HlStakingDelegation>`].
 ///
 /// Hyperliquid returns: `[{"validator": "0x...", "amount": "1000.0", "rewards": "5.0"}, ...]`
-pub fn parse_staking_delegations(
+pub(crate) fn parse_staking_delegations(
     resp: &serde_json::Value,
 ) -> Result<Vec<HlStakingDelegation>, HlError> {
     let arr = resp
@@ -423,7 +423,7 @@ pub fn parse_staking_delegations(
 /// Extracts entries from the `balances` array that have `supply`, `borrow`, and
 /// `apy` fields. Entries without these fields are skipped (they are plain spot
 /// balances, not borrow/lend positions).
-pub fn parse_borrow_lend_state(
+pub(crate) fn parse_borrow_lend_state(
     resp: &serde_json::Value,
 ) -> Result<Vec<HlBorrowLendState>, HlError> {
     let balances_arr = resp
@@ -465,7 +465,7 @@ pub fn parse_borrow_lend_state(
 /// The API returns something like:
 ///   `{"userCrossRate": "0.0002", "userAddRate": "0.0005", ...}`
 /// We map `userCrossRate` → `maker_rate` and `userAddRate` → `taker_rate`.
-pub fn parse_user_fees(resp: &serde_json::Value) -> Result<HlUserFees, HlError> {
+pub(crate) fn parse_user_fees(resp: &serde_json::Value) -> Result<HlUserFees, HlError> {
     let fee_tier = resp
         .get("feeTier")
         .or_else(|| resp.get("userFeeTier"))
@@ -538,7 +538,7 @@ fn parse_order_fields(
 /// Parse an `openOrders` JSON response into a [`Vec<HlOpenOrder>`].
 ///
 /// Hyperliquid returns: `[{"oid": 123, "coin": "BTC", "side": "B", "limitPx": "60000.0", ...}, ...]`
-pub fn parse_open_orders(resp: &serde_json::Value) -> Result<Vec<HlOpenOrder>, HlError> {
+pub(crate) fn parse_open_orders(resp: &serde_json::Value) -> Result<Vec<HlOpenOrder>, HlError> {
     let arr = resp
         .as_array()
         .ok_or_else(|| HlError::Parse("expected array for openOrders".into()))?;
@@ -557,7 +557,7 @@ pub fn parse_open_orders(resp: &serde_json::Value) -> Result<Vec<HlOpenOrder>, H
 /// Parse an `orderStatus` JSON response into an [`HlOrderDetail`].
 ///
 /// The API may return `{"order": {...}, "status": "..."}` or an error-like object.
-pub fn parse_order_status(resp: &serde_json::Value) -> Result<HlOrderDetail, HlError> {
+pub(crate) fn parse_order_status(resp: &serde_json::Value) -> Result<HlOrderDetail, HlError> {
     // The API wraps the order in an "order" field with a "status" alongside it.
     let order_val = resp.get("order").unwrap_or(resp);
     let status = resp
@@ -578,7 +578,9 @@ pub fn parse_order_status(resp: &serde_json::Value) -> Result<HlOrderDetail, HlE
 /// Parse a `fundingHistory` JSON response into a [`Vec<HlFundingEntry>`].
 ///
 /// Hyperliquid returns: `[{"coin": "BTC", "fundingRate": "0.0001", "premium": "0.00005", "time": 170...}, ...]`
-pub fn parse_funding_history(resp: &serde_json::Value) -> Result<Vec<HlFundingEntry>, HlError> {
+pub(crate) fn parse_funding_history(
+    resp: &serde_json::Value,
+) -> Result<Vec<HlFundingEntry>, HlError> {
     let arr = resp
         .as_array()
         .ok_or_else(|| HlError::Parse("expected array for fundingHistory".into()))?;
@@ -604,7 +606,9 @@ pub fn parse_funding_history(resp: &serde_json::Value) -> Result<Vec<HlFundingEn
 /// Parse a `userFunding` JSON response into a [`Vec<HlUserFundingEntry>`].
 ///
 /// Hyperliquid returns: `[{"coin": "BTC", "usdc": "-1.5", "szi": "0.5", "fundingRate": "0.0001", "time": 170...}, ...]`
-pub fn parse_user_funding(resp: &serde_json::Value) -> Result<Vec<HlUserFundingEntry>, HlError> {
+pub(crate) fn parse_user_funding(
+    resp: &serde_json::Value,
+) -> Result<Vec<HlUserFundingEntry>, HlError> {
     let arr = resp
         .as_array()
         .ok_or_else(|| HlError::Parse("expected array for userFunding".into()))?;
@@ -631,7 +635,7 @@ pub fn parse_user_funding(resp: &serde_json::Value) -> Result<Vec<HlUserFundingE
 /// Parse a `historicalOrders` JSON response into a [`Vec<HlHistoricalOrder>`].
 ///
 /// Each entry has the same fields as open orders, plus a `status` field.
-pub fn parse_historical_orders(
+pub(crate) fn parse_historical_orders(
     resp: &serde_json::Value,
 ) -> Result<Vec<HlHistoricalOrder>, HlError> {
     let arr = resp
@@ -658,7 +662,9 @@ pub fn parse_historical_orders(
 ///
 /// The API returns something like:
 ///   `{"cumVlm": "...", "nRequestsUsed": 42, "nRequestsCap": 1200, ...}`
-pub fn parse_rate_limit_status(resp: &serde_json::Value) -> Result<HlRateLimitStatus, HlError> {
+pub(crate) fn parse_rate_limit_status(
+    resp: &serde_json::Value,
+) -> Result<HlRateLimitStatus, HlError> {
     let used = resp
         .get("nRequestsUsed")
         .and_then(|v| v.as_u64())
