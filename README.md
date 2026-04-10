@@ -36,7 +36,7 @@ use hl_market::MarketData;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = HyperliquidClient::mainnet()?;
-    let market = MarketData::new(client);
+    let market = MarketData::from_client(client);
 
     let book = market.orderbook("BTC").await?;
     println!("Best bid: {:?}, Best ask: {:?}", book.bids[0], book.asks[0]);
@@ -65,6 +65,34 @@ hl-executor = { path = "sdks/motosan-hyperliquid/crates/hl-executor" }
 
 ## Usage
 
+### Shared Client (Recommended)
+
+Create a single `HyperliquidClient` wrapped in `Arc` and share it across all consumers. This reuses one connection pool and avoids redundant TLS handshakes:
+
+```rust
+use std::sync::Arc;
+use hl_client::{HttpTransport, HyperliquidClient};
+use hl_market::MarketData;
+use hl_account::Account;
+
+let client = Arc::new(HyperliquidClient::mainnet()?);
+let transport: Arc<dyn HttpTransport> = client;
+
+let market = MarketData::new(transport.clone());
+let account = Account::new(transport.clone());
+
+// Both share the same underlying HTTP client
+let book = market.orderbook("BTC").await?;
+let state = account.state("0xYourAddress").await?;
+```
+
+Each consumer struct also provides a `from_client()` convenience constructor that wraps a `HyperliquidClient` in `Arc` for you. This is fine when you only need a single consumer:
+
+```rust
+let client = HyperliquidClient::mainnet()?;
+let market = MarketData::from_client(client); // wraps in Arc internally
+```
+
 ### Query Market Data
 
 ```rust
@@ -72,7 +100,7 @@ use hl_client::HyperliquidClient;
 use hl_market::MarketData;
 
 let client = HyperliquidClient::mainnet()?;
-let market = MarketData::new(client);
+let market = MarketData::from_client(client);
 
 // Fetch the last 10 hourly candles for ETH
 let candles = market.candles("ETH", "1h", 10).await?;
@@ -95,7 +123,7 @@ use hl_client::HyperliquidClient;
 use hl_account::Account;
 
 let client = HyperliquidClient::mainnet()?;
-let account = Account::new(client);
+let account = Account::from_client(client);
 
 let state = account.state("0xYourAddress").await?;
 println!("Equity: {}, Margin available: {}", state.equity, state.margin_available);
@@ -119,7 +147,7 @@ let client = HyperliquidClient::mainnet()?;
 let signer = PrivateKeySigner::from_hex("0xYourPrivateKey")?;
 let address = signer.address().to_string();
 
-let executor = OrderExecutor::new(client, Box::new(signer), address).await?;
+let executor = OrderExecutor::from_client(client, Box::new(signer), address).await?;
 
 let order = OrderWire {
     asset: 0, // BTC index
@@ -223,6 +251,7 @@ Runnable example programs live in [`examples/`](examples/):
 
 | File | Description |
 |------|-------------|
+| [`shared_client.rs`](examples/shared_client.rs) | Share one client across market data + account queries via `Arc` |
 | [`query_market.rs`](examples/query_market.rs) | Fetch candles and orderbook |
 | [`check_account.rs`](examples/check_account.rs) | Query positions and fills |
 | [`place_order.rs`](examples/place_order.rs) | Sign and submit a limit order |

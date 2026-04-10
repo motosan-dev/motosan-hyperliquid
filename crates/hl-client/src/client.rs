@@ -81,24 +81,6 @@ impl HyperliquidClient {
         self.is_mainnet
     }
 
-    /// Create a client pointing at an arbitrary base URL (for testing).
-    #[cfg(test)]
-    pub(crate) fn with_base_url(
-        base_url: &str,
-        retry_config: RetryConfig,
-    ) -> Result<Self, HlError> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|e| HlError::Http(format!("Failed to build HTTP client: {e}")))?;
-        Ok(Self {
-            http,
-            base_url: base_url.to_string(),
-            is_mainnet: false,
-            retry_config,
-        })
-    }
-
     /// Generate a client order ID (cloid) for idempotent order submission.
     ///
     /// Uses UUID v4 formatted as a 128-bit hex string with `0x` prefix,
