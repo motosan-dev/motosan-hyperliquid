@@ -1,7 +1,10 @@
 use futures_util::{SinkExt, StreamExt};
 use hl_types::HlError;
 use rand::Rng;
+use rust_decimal::Decimal;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::str::FromStr;
 use tokio_util::sync::CancellationToken;
 
 /// Mainnet WebSocket URL.
@@ -67,9 +70,9 @@ pub enum Subscription {
 /// Contains mid prices for all assets, updated on every trade or book change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AllMidsData {
-    /// Mid prices keyed by coin symbol (e.g. `"BTC"` -> `"90000"`).
+    /// Mid prices keyed by coin symbol (e.g. `"BTC"` -> `Decimal(90000)`).
     /// Each value is the average of the best bid and best ask.
-    pub mids: serde_json::Value,
+    pub mids: HashMap<String, Decimal>,
 }
 
 /// Data received from the `l2Book` WebSocket channel.
@@ -87,6 +90,25 @@ pub struct L2BookData {
     pub time: u64,
 }
 
+/// A single trade from the WebSocket `trades` channel.
+///
+/// Contains price, size, side, and metadata for one executed trade.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WsTrade {
+    /// The coin symbol (e.g. `"BTC"`).
+    pub coin: String,
+    /// Trade side: `"B"` for buy, `"A"` for sell.
+    pub side: String,
+    /// Execution price.
+    pub px: Decimal,
+    /// Execution size.
+    pub sz: Decimal,
+    /// Trade timestamp in milliseconds since the Unix epoch.
+    pub time: u64,
+    /// Transaction hash.
+    pub hash: String,
+}
+
 /// Data received from the `trades` WebSocket channel.
 ///
 /// Contains recent trades for a single coin, pushed in real time.
@@ -94,8 +116,8 @@ pub struct L2BookData {
 pub struct TradesData {
     /// The coin symbol these trades belong to (e.g. `"ETH"`).
     pub coin: String,
-    /// Individual trade objects containing `coin`, `side`, `px`, `sz`, `time`.
-    pub trades: Vec<serde_json::Value>,
+    /// Individual typed trade objects.
+    pub trades: Vec<WsTrade>,
 }
 
 /// Data received from the `candle` WebSocket channel.
@@ -116,8 +138,16 @@ pub struct CandleData {
 pub struct BboData {
     /// The coin symbol (e.g. `"SOL"`).
     pub coin: String,
-    /// The BBO payload containing `bid`, `ask`, `bidSz`, `askSz`, and `time`.
-    pub data: serde_json::Value,
+    /// Best bid price.
+    pub bid_px: Decimal,
+    /// Best bid size.
+    pub bid_sz: Decimal,
+    /// Best ask price.
+    pub ask_px: Decimal,
+    /// Best ask size.
+    pub ask_sz: Decimal,
+    /// Server-side timestamp in milliseconds since the Unix epoch.
+    pub time: u64,
 }
 
 /// Data for a single order status change from the `orderUpdates` channel.
@@ -268,9 +298,20 @@ impl WsMessage {
             .unwrap_or(serde_json::Value::Null);
 
         match channel {
-            "allMids" => WsMessage::AllMids(AllMidsData {
-                mids: data.get("mids").cloned().unwrap_or(data.clone()),
-            }),
+            "allMids" => {
+                let mids_val = data.get("mids").cloned().unwrap_or(data.clone());
+                let mut mids = HashMap::new();
+                if let Some(obj) = mids_val.as_object() {
+                    for (k, v) in obj {
+                        if let Some(s) = v.as_str() {
+                            if let Ok(d) = Decimal::from_str(s) {
+                                mids.insert(k.clone(), d);
+                            }
+                        }
+                    }
+                }
+                WsMessage::AllMids(AllMidsData { mids })
+            }
             "l2Book" => WsMessage::L2Book(L2BookData {
                 coin: data
                     .get("coin")
@@ -281,27 +322,63 @@ impl WsMessage {
                 time: data.get("time").and_then(|t| t.as_u64()).unwrap_or(0),
             }),
             "trades" => {
-                let trades = data.as_array().cloned().unwrap_or_default();
-                let coin = trades
+                let raw_trades = data.as_array().cloned().unwrap_or_default();
+                let coin = raw_trades
                     .first()
                     .and_then(|t| t.get("coin"))
                     .and_then(|c| c.as_str())
                     .unwrap_or("")
                     .to_string();
+                let trades = raw_trades
+                    .iter()
+                    .filter_map(|t| {
+                        let coin = t.get("coin")?.as_str()?.to_string();
+                        let side = t.get("side")?.as_str()?.to_string();
+                        let px = Decimal::from_str(t.get("px")?.as_str()?).ok()?;
+                        let sz = Decimal::from_str(t.get("sz")?.as_str()?).ok()?;
+                        let time = t.get("time").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let hash = t
+                            .get("hash")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        Some(WsTrade {
+                            coin,
+                            side,
+                            px,
+                            sz,
+                            time,
+                            hash,
+                        })
+                    })
+                    .collect();
                 WsMessage::Trades(TradesData { coin, trades })
             }
             "candle" => WsMessage::Candle(CandleData {
                 coin: data.get("s").and_then(|c| c.as_str()).unwrap_or("").into(),
                 candle: data,
             }),
-            "bbo" => WsMessage::Bbo(BboData {
-                coin: data
+            "bbo" => {
+                let coin = data
                     .get("coin")
                     .and_then(|c| c.as_str())
                     .unwrap_or("")
-                    .into(),
-                data,
-            }),
+                    .to_string();
+                let parse_decimal = |key: &str| -> Decimal {
+                    data.get(key)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| Decimal::from_str(s).ok())
+                        .unwrap_or_default()
+                };
+                WsMessage::Bbo(BboData {
+                    coin,
+                    bid_px: parse_decimal("bidPx"),
+                    bid_sz: parse_decimal("bidSz"),
+                    ask_px: parse_decimal("askPx"),
+                    ask_sz: parse_decimal("askSz"),
+                    time: data.get("time").and_then(|t| t.as_u64()).unwrap_or(0),
+                })
+            }
             "orderUpdates" => {
                 let updates = data
                     .as_array()
@@ -1124,9 +1201,153 @@ mod tests {
         let msg = WsMessage::parse(raw);
         match msg {
             WsMessage::AllMids(data) => {
-                assert!(data.mids.get("BTC").is_some());
+                assert_eq!(data.mids.len(), 2);
+                assert_eq!(
+                    *data.mids.get("BTC").unwrap(),
+                    Decimal::from_str("90000").unwrap()
+                );
+                assert_eq!(
+                    *data.mids.get("ETH").unwrap(),
+                    Decimal::from_str("3000").unwrap()
+                );
             }
             other => panic!("expected AllMids, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_all_mids_empty() {
+        let raw = serde_json::json!({
+            "channel": "allMids",
+            "data": {"mids": {}}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::AllMids(data) => assert!(data.mids.is_empty()),
+            other => panic!("expected AllMids, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_all_mids_skips_unparseable_values() {
+        let raw = serde_json::json!({
+            "channel": "allMids",
+            "data": {"mids": {"BTC": "90000", "BAD": "not_a_number"}}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::AllMids(data) => {
+                assert_eq!(data.mids.len(), 1);
+                assert!(data.mids.contains_key("BTC"));
+                assert!(!data.mids.contains_key("BAD"));
+            }
+            other => panic!("expected AllMids, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_trades_message() {
+        let raw = serde_json::json!({
+            "channel": "trades",
+            "data": [
+                {"coin": "ETH", "side": "B", "px": "3000.50", "sz": "1.2", "time": 1700000000000u64, "hash": "0xabc"},
+                {"coin": "ETH", "side": "A", "px": "3001.00", "sz": "0.5", "time": 1700000000001u64, "hash": "0xdef"}
+            ]
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::Trades(data) => {
+                assert_eq!(data.coin, "ETH");
+                assert_eq!(data.trades.len(), 2);
+                assert_eq!(data.trades[0].coin, "ETH");
+                assert_eq!(data.trades[0].side, "B");
+                assert_eq!(data.trades[0].px, Decimal::from_str("3000.50").unwrap());
+                assert_eq!(data.trades[0].sz, Decimal::from_str("1.2").unwrap());
+                assert_eq!(data.trades[0].time, 1700000000000);
+                assert_eq!(data.trades[0].hash, "0xabc");
+                assert_eq!(data.trades[1].side, "A");
+            }
+            other => panic!("expected Trades, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_trades_skips_malformed_entries() {
+        let raw = serde_json::json!({
+            "channel": "trades",
+            "data": [
+                {"coin": "ETH", "side": "B", "px": "3000", "sz": "1.0", "time": 100u64, "hash": "0x1"},
+                {"coin": "ETH", "bad_field": true}
+            ]
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::Trades(data) => {
+                assert_eq!(data.trades.len(), 1);
+                assert_eq!(data.trades[0].px, Decimal::from_str("3000").unwrap());
+            }
+            other => panic!("expected Trades, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_trades_empty_array() {
+        let raw = serde_json::json!({
+            "channel": "trades",
+            "data": []
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::Trades(data) => {
+                assert_eq!(data.coin, "");
+                assert!(data.trades.is_empty());
+            }
+            other => panic!("expected Trades, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_bbo_message() {
+        let raw = serde_json::json!({
+            "channel": "bbo",
+            "data": {
+                "coin": "SOL",
+                "bidPx": "150.25",
+                "bidSz": "100.0",
+                "askPx": "150.30",
+                "askSz": "50.0",
+                "time": 1700000000000u64
+            }
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::Bbo(data) => {
+                assert_eq!(data.coin, "SOL");
+                assert_eq!(data.bid_px, Decimal::from_str("150.25").unwrap());
+                assert_eq!(data.bid_sz, Decimal::from_str("100.0").unwrap());
+                assert_eq!(data.ask_px, Decimal::from_str("150.30").unwrap());
+                assert_eq!(data.ask_sz, Decimal::from_str("50.0").unwrap());
+                assert_eq!(data.time, 1700000000000);
+            }
+            other => panic!("expected Bbo, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_bbo_missing_fields_defaults_to_zero() {
+        let raw = serde_json::json!({
+            "channel": "bbo",
+            "data": {"coin": "BTC"}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::Bbo(data) => {
+                assert_eq!(data.coin, "BTC");
+                assert_eq!(data.bid_px, Decimal::default());
+                assert_eq!(data.ask_px, Decimal::default());
+                assert_eq!(data.time, 0);
+            }
+            other => panic!("expected Bbo, got: {:?}", other),
         }
     }
 
