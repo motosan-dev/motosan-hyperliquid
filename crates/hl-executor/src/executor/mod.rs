@@ -26,7 +26,7 @@ pub mod twap;
 /// Delegates to [`hl_types::normalize_coin`] which strips common suffixes
 /// (-PERP, -USDC, -USD) and uppercases the result.
 pub(crate) fn normalize_symbol(symbol: &str) -> String {
-    normalize_coin(symbol)
+    normalize_coin(symbol).into_owned()
 }
 
 /// The fill-size threshold ratio used to distinguish "filled" from "partial".
