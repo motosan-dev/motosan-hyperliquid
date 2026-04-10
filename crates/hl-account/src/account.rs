@@ -166,7 +166,7 @@ impl Account {
         if let Some(et) = end_time {
             payload
                 .as_object_mut()
-                .unwrap()
+                .ok_or_else(|| HlError::Parse("payload is not a JSON object".into()))?
                 .insert("endTime".to_string(), serde_json::Value::Number(et.into()));
         }
         let resp = self.client.post_info(payload).await?;
@@ -191,7 +191,7 @@ impl Account {
         if let Some(et) = end_time {
             payload
                 .as_object_mut()
-                .unwrap()
+                .ok_or_else(|| HlError::Parse("payload is not a JSON object".into()))?
                 .insert("endTime".to_string(), serde_json::Value::Number(et.into()));
         }
         let resp = self.client.post_info(payload).await?;

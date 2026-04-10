@@ -27,10 +27,13 @@ impl OrderExecutor {
             "nonce": nonce,
         });
         if let Some(name) = agent_name {
-            action.as_object_mut().unwrap().insert(
-                "agentName".to_string(),
-                serde_json::Value::String(name.to_string()),
-            );
+            action
+                .as_object_mut()
+                .ok_or_else(|| HlError::serialization("payload is not a JSON object"))?
+                .insert(
+                    "agentName".to_string(),
+                    serde_json::Value::String(name.to_string()),
+                );
         }
 
         let mut types = vec![
