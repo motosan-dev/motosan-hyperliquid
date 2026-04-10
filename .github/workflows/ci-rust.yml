@@ -10,32 +10,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check (${{ matrix.rust }})
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --features ws,k256-signer --all-targets -- -D warnings
+
+  test:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
         rust: [stable, "1.75"]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust ${{ matrix.rust }}
-        uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy
-
       - uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-features -- -D warnings
-
-      - name: Test (default features)
-        run: cargo test --workspace
-
-      - name: Test (ws feature)
-        run: cargo test --workspace --features ws
+      - run: cargo test
+      - run: cargo test --features ws

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// ECDSA signature split into r, s, v components (hex-encoded).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Signature {
     /// r component as 0x-prefixed hex string.
     pub r: String,
@@ -9,6 +10,13 @@ pub struct Signature {
     pub s: String,
     /// Recovery id (27 or 28).
     pub v: u8,
+}
+
+impl Signature {
+    /// Creates a new `Signature` from its components.
+    pub fn new(r: String, s: String, v: u8) -> Self {
+        Self { r, s, v }
+    }
 }
 
 #[cfg(test)]

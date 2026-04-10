@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 /// A position held on Hyperliquid.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct HlPosition {
     /// The coin/asset symbol.
     pub coin: String,
@@ -21,9 +22,31 @@ pub struct HlPosition {
     pub liquidation_px: Option<Decimal>,
 }
 
+impl HlPosition {
+    /// Creates a new `HlPosition`.
+    pub fn new(
+        coin: String,
+        size: Decimal,
+        entry_px: Decimal,
+        unrealized_pnl: Decimal,
+        leverage: Decimal,
+        liquidation_px: Option<Decimal>,
+    ) -> Self {
+        Self {
+            coin,
+            size,
+            entry_px,
+            unrealized_pnl,
+            leverage,
+            liquidation_px,
+        }
+    }
+}
+
 /// A trade fill on Hyperliquid.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct HlFill {
     /// The coin/asset symbol.
     pub coin: String,
@@ -41,9 +64,33 @@ pub struct HlFill {
     pub closed_pnl: Decimal,
 }
 
+impl HlFill {
+    /// Creates a new `HlFill`.
+    pub fn new(
+        coin: String,
+        px: Decimal,
+        sz: Decimal,
+        is_buy: bool,
+        timestamp: u64,
+        fee: Decimal,
+        closed_pnl: Decimal,
+    ) -> Self {
+        Self {
+            coin,
+            px,
+            sz,
+            is_buy,
+            timestamp,
+            fee,
+            closed_pnl,
+        }
+    }
+}
+
 /// Snapshot of an account's state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct HlAccountState {
     /// Account equity.
     pub equity: Decimal,
@@ -51,6 +98,17 @@ pub struct HlAccountState {
     pub margin_available: Decimal,
     /// Open positions.
     pub positions: Vec<HlPosition>,
+}
+
+impl HlAccountState {
+    /// Creates a new `HlAccountState`.
+    pub fn new(equity: Decimal, margin_available: Decimal, positions: Vec<HlPosition>) -> Self {
+        Self {
+            equity,
+            margin_available,
+            positions,
+        }
+    }
 }
 
 /// Summary of a vault the user participates in.

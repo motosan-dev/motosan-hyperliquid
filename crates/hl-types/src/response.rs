@@ -8,6 +8,7 @@ use crate::order::OrderStatus;
 /// Response returned after placing an order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct OrderResponse {
     /// Exchange-assigned order identifier.
     pub order_id: String,
@@ -19,6 +20,25 @@ pub struct OrderResponse {
     pub requested_size: Decimal,
     /// Order status.
     pub status: OrderStatus,
+}
+
+impl OrderResponse {
+    /// Creates a new `OrderResponse`.
+    pub fn new(
+        order_id: String,
+        filled_price: Option<Decimal>,
+        filled_size: Decimal,
+        requested_size: Decimal,
+        status: OrderStatus,
+    ) -> Self {
+        Self {
+            order_id,
+            filled_price,
+            filled_size,
+            requested_size,
+            status,
+        }
+    }
 }
 
 /// Generic response from an exchange action (cancel, transfer, etc.).
