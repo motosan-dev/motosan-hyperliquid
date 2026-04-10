@@ -275,6 +275,224 @@ impl HlBorrowLendState {
     }
 }
 
+/// An open order on Hyperliquid.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlOpenOrder {
+    /// Order ID.
+    pub oid: u64,
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// Order side ("B" for buy, "A" for ask/sell).
+    pub side: String,
+    /// Limit price.
+    pub limit_px: Decimal,
+    /// Order size.
+    pub sz: Decimal,
+    /// Timestamp in milliseconds.
+    pub timestamp: u64,
+    /// Order type (e.g. "Limit").
+    pub order_type: String,
+    /// Client order ID, if set.
+    pub cloid: Option<String>,
+}
+
+impl HlOpenOrder {
+    /// Creates a new `HlOpenOrder`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        oid: u64,
+        coin: String,
+        side: String,
+        limit_px: Decimal,
+        sz: Decimal,
+        timestamp: u64,
+        order_type: String,
+        cloid: Option<String>,
+    ) -> Self {
+        Self {
+            oid,
+            coin,
+            side,
+            limit_px,
+            sz,
+            timestamp,
+            order_type,
+            cloid,
+        }
+    }
+}
+
+/// Detailed status of a single order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlOrderDetail {
+    /// Order ID.
+    pub oid: u64,
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// Order side ("B" for buy, "A" for ask/sell).
+    pub side: String,
+    /// Limit price.
+    pub limit_px: Decimal,
+    /// Order size.
+    pub sz: Decimal,
+    /// Timestamp in milliseconds.
+    pub timestamp: u64,
+    /// Order type (e.g. "Limit").
+    pub order_type: String,
+    /// Client order ID, if set.
+    pub cloid: Option<String>,
+    /// Order status (e.g. "open", "filled", "canceled").
+    pub status: String,
+}
+
+impl HlOrderDetail {
+    /// Creates a new `HlOrderDetail`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        oid: u64,
+        coin: String,
+        side: String,
+        limit_px: Decimal,
+        sz: Decimal,
+        timestamp: u64,
+        order_type: String,
+        cloid: Option<String>,
+        status: String,
+    ) -> Self {
+        Self {
+            oid,
+            coin,
+            side,
+            limit_px,
+            sz,
+            timestamp,
+            order_type,
+            cloid,
+            status,
+        }
+    }
+}
+
+/// A funding rate entry for a coin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlFundingEntry {
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// Funding rate.
+    pub funding_rate: Decimal,
+    /// Premium.
+    pub premium: Decimal,
+    /// Timestamp in milliseconds.
+    pub time: u64,
+}
+
+impl HlFundingEntry {
+    /// Creates a new `HlFundingEntry`.
+    pub fn new(coin: String, funding_rate: Decimal, premium: Decimal, time: u64) -> Self {
+        Self {
+            coin,
+            funding_rate,
+            premium,
+            time,
+        }
+    }
+}
+
+/// A user-specific funding entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlUserFundingEntry {
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// USDC amount.
+    pub usdc: Decimal,
+    /// Size (signed).
+    pub szi: Decimal,
+    /// Funding rate.
+    pub funding_rate: Decimal,
+    /// Timestamp in milliseconds.
+    pub time: u64,
+}
+
+impl HlUserFundingEntry {
+    /// Creates a new `HlUserFundingEntry`.
+    pub fn new(
+        coin: String,
+        usdc: Decimal,
+        szi: Decimal,
+        funding_rate: Decimal,
+        time: u64,
+    ) -> Self {
+        Self {
+            coin,
+            usdc,
+            szi,
+            funding_rate,
+            time,
+        }
+    }
+}
+
+/// A historical order with status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlHistoricalOrder {
+    /// Order ID.
+    pub oid: u64,
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// Order side ("B" for buy, "A" for ask/sell).
+    pub side: String,
+    /// Limit price.
+    pub limit_px: Decimal,
+    /// Order size.
+    pub sz: Decimal,
+    /// Timestamp in milliseconds.
+    pub timestamp: u64,
+    /// Order type (e.g. "Limit").
+    pub order_type: String,
+    /// Client order ID, if set.
+    pub cloid: Option<String>,
+    /// Order status (e.g. "filled", "canceled").
+    pub status: String,
+}
+
+impl HlHistoricalOrder {
+    /// Creates a new `HlHistoricalOrder`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        oid: u64,
+        coin: String,
+        side: String,
+        limit_px: Decimal,
+        sz: Decimal,
+        timestamp: u64,
+        order_type: String,
+        cloid: Option<String>,
+        status: String,
+    ) -> Self {
+        Self {
+            oid,
+            coin,
+            side,
+            limit_px,
+            sz,
+            timestamp,
+            order_type,
+            cloid,
+            status,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -720,5 +938,199 @@ mod tests {
         assert_eq!(status.used, 10);
         assert_eq!(status.limit, 500);
         assert_eq!(status.window_ms, 60000);
+    }
+
+    #[test]
+    fn open_order_serde_roundtrip() {
+        let order = HlOpenOrder {
+            oid: 12345,
+            coin: "BTC".into(),
+            side: "B".into(),
+            limit_px: Decimal::from_str("60000.0").unwrap(),
+            sz: Decimal::from_str("0.5").unwrap(),
+            timestamp: 1700000000000,
+            order_type: "Limit".into(),
+            cloid: Some("my-order-1".into()),
+        };
+        let json = serde_json::to_string(&order).unwrap();
+        let parsed: HlOpenOrder = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.oid, 12345);
+        assert_eq!(parsed.coin, "BTC");
+        assert_eq!(parsed.side, "B");
+        assert_eq!(parsed.limit_px, Decimal::from_str("60000.0").unwrap());
+        assert_eq!(parsed.sz, Decimal::from_str("0.5").unwrap());
+        assert_eq!(parsed.timestamp, 1700000000000);
+        assert_eq!(parsed.order_type, "Limit");
+        assert_eq!(parsed.cloid.as_deref(), Some("my-order-1"));
+    }
+
+    #[test]
+    fn open_order_no_cloid_roundtrip() {
+        let order = HlOpenOrder {
+            oid: 99,
+            coin: "ETH".into(),
+            side: "A".into(),
+            limit_px: Decimal::from_str("3000.0").unwrap(),
+            sz: Decimal::ONE,
+            timestamp: 0,
+            order_type: "Limit".into(),
+            cloid: None,
+        };
+        let json = serde_json::to_string(&order).unwrap();
+        let parsed: HlOpenOrder = serde_json::from_str(&json).unwrap();
+        assert!(parsed.cloid.is_none());
+    }
+
+    #[test]
+    fn open_order_camel_case_keys() {
+        let order = HlOpenOrder {
+            oid: 1,
+            coin: "X".into(),
+            side: "B".into(),
+            limit_px: Decimal::ONE,
+            sz: Decimal::ONE,
+            timestamp: 0,
+            order_type: "Limit".into(),
+            cloid: None,
+        };
+        let json = serde_json::to_string(&order).unwrap();
+        assert!(json.contains("limitPx"));
+        assert!(json.contains("orderType"));
+    }
+
+    #[test]
+    fn order_detail_serde_roundtrip() {
+        let detail = HlOrderDetail {
+            oid: 555,
+            coin: "SOL".into(),
+            side: "B".into(),
+            limit_px: Decimal::from_str("150.0").unwrap(),
+            sz: Decimal::from_str("10.0").unwrap(),
+            timestamp: 1700000000000,
+            order_type: "Limit".into(),
+            cloid: None,
+            status: "filled".into(),
+        };
+        let json = serde_json::to_string(&detail).unwrap();
+        let parsed: HlOrderDetail = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.oid, 555);
+        assert_eq!(parsed.status, "filled");
+        assert_eq!(parsed.coin, "SOL");
+    }
+
+    #[test]
+    fn order_detail_camel_case_keys() {
+        let detail = HlOrderDetail {
+            oid: 1,
+            coin: "X".into(),
+            side: "B".into(),
+            limit_px: Decimal::ONE,
+            sz: Decimal::ONE,
+            timestamp: 0,
+            order_type: "Limit".into(),
+            cloid: Some("c1".into()),
+            status: "open".into(),
+        };
+        let json = serde_json::to_string(&detail).unwrap();
+        assert!(json.contains("limitPx"));
+        assert!(json.contains("orderType"));
+    }
+
+    #[test]
+    fn funding_entry_serde_roundtrip() {
+        let entry = HlFundingEntry {
+            coin: "BTC".into(),
+            funding_rate: Decimal::from_str("0.0001").unwrap(),
+            premium: Decimal::from_str("0.00005").unwrap(),
+            time: 1700000000000,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: HlFundingEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.coin, "BTC");
+        assert_eq!(parsed.funding_rate, Decimal::from_str("0.0001").unwrap());
+        assert_eq!(parsed.premium, Decimal::from_str("0.00005").unwrap());
+        assert_eq!(parsed.time, 1700000000000);
+    }
+
+    #[test]
+    fn funding_entry_camel_case_keys() {
+        let entry = HlFundingEntry {
+            coin: "X".into(),
+            funding_rate: Decimal::ONE,
+            premium: Decimal::ZERO,
+            time: 0,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("fundingRate"));
+    }
+
+    #[test]
+    fn user_funding_entry_serde_roundtrip() {
+        let entry = HlUserFundingEntry {
+            coin: "ETH".into(),
+            usdc: Decimal::from_str("-1.5").unwrap(),
+            szi: Decimal::from_str("2.0").unwrap(),
+            funding_rate: Decimal::from_str("0.0002").unwrap(),
+            time: 1700000000000,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: HlUserFundingEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.coin, "ETH");
+        assert_eq!(parsed.usdc, Decimal::from_str("-1.5").unwrap());
+        assert_eq!(parsed.szi, Decimal::from_str("2.0").unwrap());
+        assert_eq!(parsed.funding_rate, Decimal::from_str("0.0002").unwrap());
+        assert_eq!(parsed.time, 1700000000000);
+    }
+
+    #[test]
+    fn user_funding_entry_camel_case_keys() {
+        let entry = HlUserFundingEntry {
+            coin: "X".into(),
+            usdc: Decimal::ONE,
+            szi: Decimal::ONE,
+            funding_rate: Decimal::ZERO,
+            time: 0,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("fundingRate"));
+    }
+
+    #[test]
+    fn historical_order_serde_roundtrip() {
+        let order = HlHistoricalOrder {
+            oid: 777,
+            coin: "BTC".into(),
+            side: "A".into(),
+            limit_px: Decimal::from_str("65000.0").unwrap(),
+            sz: Decimal::from_str("0.1").unwrap(),
+            timestamp: 1700000000000,
+            order_type: "Limit".into(),
+            cloid: Some("hist-1".into()),
+            status: "filled".into(),
+        };
+        let json = serde_json::to_string(&order).unwrap();
+        let parsed: HlHistoricalOrder = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.oid, 777);
+        assert_eq!(parsed.status, "filled");
+        assert_eq!(parsed.coin, "BTC");
+        assert_eq!(parsed.cloid.as_deref(), Some("hist-1"));
+    }
+
+    #[test]
+    fn historical_order_camel_case_keys() {
+        let order = HlHistoricalOrder {
+            oid: 1,
+            coin: "X".into(),
+            side: "B".into(),
+            limit_px: Decimal::ONE,
+            sz: Decimal::ONE,
+            timestamp: 0,
+            order_type: "Limit".into(),
+            cloid: None,
+            status: "canceled".into(),
+        };
+        let json = serde_json::to_string(&order).unwrap();
+        assert!(json.contains("limitPx"));
+        assert!(json.contains("orderType"));
     }
 }

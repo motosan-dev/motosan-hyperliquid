@@ -5,7 +5,8 @@ use rust_decimal::Decimal;
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
     parse_str_decimal, HlAccountState, HlBorrowLendState, HlError, HlExtraAgent, HlFill,
-    HlPosition, HlRateLimitStatus, HlSpotBalance, HlStakingDelegation, HlUserFees, HlVaultDetails,
+    HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus,
+    HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry, HlVaultDetails,
     HlVaultSummary,
 };
 
@@ -130,23 +131,18 @@ impl Account {
 
     /// Fetch open orders for an address.
     #[tracing::instrument(skip(self))]
-    pub async fn open_orders(&self, address: &str) -> Result<Vec<serde_json::Value>, HlError> {
+    pub async fn open_orders(&self, address: &str) -> Result<Vec<HlOpenOrder>, HlError> {
         let payload = serde_json::json!({"type": "openOrders", "user": address});
         let resp = self.client.post_info(payload).await?;
-        resp.as_array()
-            .cloned()
-            .ok_or_else(|| HlError::Parse("expected array for openOrders".into()))
+        parse_open_orders(&resp)
     }
 
     /// Fetch the status of a specific order.
     #[tracing::instrument(skip(self))]
-    pub async fn order_status(
-        &self,
-        address: &str,
-        oid: u64,
-    ) -> Result<serde_json::Value, HlError> {
+    pub async fn order_status(&self, address: &str, oid: u64) -> Result<HlOrderDetail, HlError> {
         let payload = serde_json::json!({"type": "orderStatus", "user": address, "oid": oid});
-        self.client.post_info(payload).await
+        let resp = self.client.post_info(payload).await?;
+        parse_order_status(&resp)
     }
 
     /// Fetch funding history for a coin.
@@ -156,7 +152,7 @@ impl Account {
         coin: &str,
         start_time: u64,
         end_time: Option<u64>,
-    ) -> Result<Vec<serde_json::Value>, HlError> {
+    ) -> Result<Vec<HlFundingEntry>, HlError> {
         let mut payload = serde_json::json!({
             "type": "fundingHistory",
             "coin": coin,
@@ -169,9 +165,7 @@ impl Account {
                 .insert("endTime".to_string(), serde_json::Value::Number(et.into()));
         }
         let resp = self.client.post_info(payload).await?;
-        resp.as_array()
-            .cloned()
-            .ok_or_else(|| HlError::Parse("expected array for fundingHistory".into()))
+        parse_funding_history(&resp)
     }
 
     /// Fetch user funding history for an address.
@@ -181,7 +175,7 @@ impl Account {
         address: &str,
         start_time: u64,
         end_time: Option<u64>,
-    ) -> Result<Vec<serde_json::Value>, HlError> {
+    ) -> Result<Vec<HlUserFundingEntry>, HlError> {
         let mut payload = serde_json::json!({
             "type": "userFunding",
             "user": address,
@@ -194,9 +188,7 @@ impl Account {
                 .insert("endTime".to_string(), serde_json::Value::Number(et.into()));
         }
         let resp = self.client.post_info(payload).await?;
-        resp.as_array()
-            .cloned()
-            .ok_or_else(|| HlError::Parse("expected array for userFunding".into()))
+        parse_user_funding(&resp)
     }
 
     /// Fetch historical orders for an address.
@@ -204,12 +196,10 @@ impl Account {
     pub async fn historical_orders(
         &self,
         address: &str,
-    ) -> Result<Vec<serde_json::Value>, HlError> {
+    ) -> Result<Vec<HlHistoricalOrder>, HlError> {
         let payload = serde_json::json!({"type": "historicalOrders", "user": address});
         let resp = self.client.post_info(payload).await?;
-        resp.as_array()
-            .cloned()
-            .ok_or_else(|| HlError::Parse("expected array for historicalOrders".into()))
+        parse_historical_orders(&resp)
     }
 
     /// Fetch staking delegations for an address.
@@ -491,6 +481,177 @@ pub fn parse_user_fees(resp: &serde_json::Value) -> Result<HlUserFees, HlError> 
     let taker_rate = parse_str_decimal(resp.get("userAddRate"), "userAddRate")?;
 
     Ok(HlUserFees::new(fee_tier, maker_rate, taker_rate))
+}
+
+/// Helper to parse common order fields from a JSON value.
+///
+/// Extracts `oid`, `coin`, `side`, `limitPx`, `sz`, `timestamp`, `orderType`, and `cloid`.
+#[allow(clippy::type_complexity)]
+fn parse_order_fields(
+    item: &serde_json::Value,
+    context: &str,
+) -> Result<
+    (
+        u64,
+        String,
+        String,
+        Decimal,
+        Decimal,
+        u64,
+        String,
+        Option<String>,
+    ),
+    HlError,
+> {
+    let oid = item
+        .get("oid")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| HlError::Parse(format!("missing or invalid 'oid' in {context}")))?;
+    let coin = item
+        .get("coin")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| HlError::Parse(format!("missing 'coin' in {context}")))?
+        .to_string();
+    let side = item
+        .get("side")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| HlError::Parse(format!("missing 'side' in {context}")))?
+        .to_string();
+    let limit_px = parse_str_decimal(item.get("limitPx"), "limitPx")?;
+    let sz = parse_str_decimal(item.get("sz"), "sz")?;
+    let timestamp = item
+        .get("timestamp")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| HlError::Parse(format!("missing or invalid 'timestamp' in {context}")))?;
+    let order_type = item
+        .get("orderType")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Limit")
+        .to_string();
+    let cloid = item
+        .get("cloid")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Ok((oid, coin, side, limit_px, sz, timestamp, order_type, cloid))
+}
+
+/// Parse an `openOrders` JSON response into a [`Vec<HlOpenOrder>`].
+///
+/// Hyperliquid returns: `[{"oid": 123, "coin": "BTC", "side": "B", "limitPx": "60000.0", ...}, ...]`
+pub fn parse_open_orders(resp: &serde_json::Value) -> Result<Vec<HlOpenOrder>, HlError> {
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for openOrders".into()))?;
+
+    let mut orders = Vec::with_capacity(arr.len());
+    for item in arr {
+        let (oid, coin, side, limit_px, sz, timestamp, order_type, cloid) =
+            parse_order_fields(item, "openOrder")?;
+        orders.push(HlOpenOrder::new(
+            oid, coin, side, limit_px, sz, timestamp, order_type, cloid,
+        ));
+    }
+    Ok(orders)
+}
+
+/// Parse an `orderStatus` JSON response into an [`HlOrderDetail`].
+///
+/// The API may return `{"order": {...}, "status": "..."}` or an error-like object.
+pub fn parse_order_status(resp: &serde_json::Value) -> Result<HlOrderDetail, HlError> {
+    // The API wraps the order in an "order" field with a "status" alongside it.
+    let order_val = resp.get("order").unwrap_or(resp);
+    let status = resp
+        .get("status")
+        .and_then(|v| v.as_str())
+        .or_else(|| order_val.get("status").and_then(|v| v.as_str()))
+        .unwrap_or("unknown")
+        .to_string();
+
+    let (oid, coin, side, limit_px, sz, timestamp, order_type, cloid) =
+        parse_order_fields(order_val, "orderStatus")?;
+
+    Ok(HlOrderDetail::new(
+        oid, coin, side, limit_px, sz, timestamp, order_type, cloid, status,
+    ))
+}
+
+/// Parse a `fundingHistory` JSON response into a [`Vec<HlFundingEntry>`].
+///
+/// Hyperliquid returns: `[{"coin": "BTC", "fundingRate": "0.0001", "premium": "0.00005", "time": 170...}, ...]`
+pub fn parse_funding_history(resp: &serde_json::Value) -> Result<Vec<HlFundingEntry>, HlError> {
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for fundingHistory".into()))?;
+
+    let mut entries = Vec::with_capacity(arr.len());
+    for item in arr {
+        let coin = item
+            .get("coin")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| HlError::Parse("missing 'coin' in fundingHistory entry".into()))?
+            .to_string();
+        let funding_rate = parse_str_decimal(item.get("fundingRate"), "fundingRate")?;
+        let premium = parse_str_decimal(item.get("premium"), "premium")?;
+        let time = item
+            .get("time")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| HlError::Parse("missing or invalid 'time' in fundingHistory".into()))?;
+        entries.push(HlFundingEntry::new(coin, funding_rate, premium, time));
+    }
+    Ok(entries)
+}
+
+/// Parse a `userFunding` JSON response into a [`Vec<HlUserFundingEntry>`].
+///
+/// Hyperliquid returns: `[{"coin": "BTC", "usdc": "-1.5", "szi": "0.5", "fundingRate": "0.0001", "time": 170...}, ...]`
+pub fn parse_user_funding(resp: &serde_json::Value) -> Result<Vec<HlUserFundingEntry>, HlError> {
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for userFunding".into()))?;
+
+    let mut entries = Vec::with_capacity(arr.len());
+    for item in arr {
+        let coin = item
+            .get("coin")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| HlError::Parse("missing 'coin' in userFunding entry".into()))?
+            .to_string();
+        let usdc = parse_str_decimal(item.get("usdc"), "usdc")?;
+        let szi = parse_str_decimal(item.get("szi"), "szi")?;
+        let funding_rate = parse_str_decimal(item.get("fundingRate"), "fundingRate")?;
+        let time = item
+            .get("time")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| HlError::Parse("missing or invalid 'time' in userFunding".into()))?;
+        entries.push(HlUserFundingEntry::new(coin, usdc, szi, funding_rate, time));
+    }
+    Ok(entries)
+}
+
+/// Parse a `historicalOrders` JSON response into a [`Vec<HlHistoricalOrder>`].
+///
+/// Each entry has the same fields as open orders, plus a `status` field.
+pub fn parse_historical_orders(
+    resp: &serde_json::Value,
+) -> Result<Vec<HlHistoricalOrder>, HlError> {
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for historicalOrders".into()))?;
+
+    let mut orders = Vec::with_capacity(arr.len());
+    for item in arr {
+        let (oid, coin, side, limit_px, sz, timestamp, order_type, cloid) =
+            parse_order_fields(item, "historicalOrder")?;
+        let status = item
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        orders.push(HlHistoricalOrder::new(
+            oid, coin, side, limit_px, sz, timestamp, order_type, cloid, status,
+        ));
+    }
+    Ok(orders)
 }
 
 /// Parse a `userRateLimit` JSON response into an [`HlRateLimitStatus`].
@@ -1039,5 +1200,280 @@ mod tests {
             "windowMs": 60000
         });
         assert!(parse_rate_limit_status(&resp).is_err());
+    }
+
+    // --- open_orders parser tests ---
+
+    #[test]
+    fn parse_open_orders_basic() {
+        let resp = serde_json::json!([
+            {
+                "oid": 12345,
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "60000.0",
+                "sz": "0.5",
+                "timestamp": 1700000000000_u64,
+                "orderType": "Limit",
+                "cloid": "my-order-1"
+            },
+            {
+                "oid": 12346,
+                "coin": "ETH",
+                "side": "A",
+                "limitPx": "3000.0",
+                "sz": "2.0",
+                "timestamp": 1700000000001_u64,
+                "orderType": "Limit"
+            }
+        ]);
+        let orders = parse_open_orders(&resp).unwrap();
+        assert_eq!(orders.len(), 2);
+        assert_eq!(orders[0].oid, 12345);
+        assert_eq!(orders[0].coin, "BTC");
+        assert_eq!(orders[0].side, "B");
+        assert_eq!(orders[0].limit_px, Decimal::from_str("60000.0").unwrap());
+        assert_eq!(orders[0].sz, Decimal::from_str("0.5").unwrap());
+        assert_eq!(orders[0].timestamp, 1700000000000);
+        assert_eq!(orders[0].order_type, "Limit");
+        assert_eq!(orders[0].cloid.as_deref(), Some("my-order-1"));
+        assert_eq!(orders[1].oid, 12346);
+        assert_eq!(orders[1].coin, "ETH");
+        assert!(orders[1].cloid.is_none());
+    }
+
+    #[test]
+    fn parse_open_orders_empty() {
+        let resp = serde_json::json!([]);
+        let orders = parse_open_orders(&resp).unwrap();
+        assert!(orders.is_empty());
+    }
+
+    #[test]
+    fn parse_open_orders_expects_array() {
+        let resp = serde_json::json!({"not": "an array"});
+        assert!(parse_open_orders(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_open_orders_missing_oid_errors() {
+        let resp = serde_json::json!([{
+            "coin": "BTC", "side": "B", "limitPx": "100.0",
+            "sz": "1.0", "timestamp": 0
+        }]);
+        assert!(parse_open_orders(&resp).is_err());
+    }
+
+    // --- order_status parser tests ---
+
+    #[test]
+    fn parse_order_status_wrapped() {
+        let resp = serde_json::json!({
+            "order": {
+                "oid": 555,
+                "coin": "SOL",
+                "side": "B",
+                "limitPx": "150.0",
+                "sz": "10.0",
+                "timestamp": 1700000000000_u64,
+                "orderType": "Limit"
+            },
+            "status": "filled"
+        });
+        let detail = parse_order_status(&resp).unwrap();
+        assert_eq!(detail.oid, 555);
+        assert_eq!(detail.coin, "SOL");
+        assert_eq!(detail.status, "filled");
+        assert_eq!(detail.limit_px, Decimal::from_str("150.0").unwrap());
+    }
+
+    #[test]
+    fn parse_order_status_flat() {
+        let resp = serde_json::json!({
+            "oid": 100,
+            "coin": "BTC",
+            "side": "A",
+            "limitPx": "60000.0",
+            "sz": "0.1",
+            "timestamp": 1700000000000_u64,
+            "orderType": "Limit",
+            "status": "open"
+        });
+        let detail = parse_order_status(&resp).unwrap();
+        assert_eq!(detail.oid, 100);
+        assert_eq!(detail.status, "open");
+    }
+
+    #[test]
+    fn parse_order_status_missing_fields_errors() {
+        let resp = serde_json::json!({"status": "error"});
+        assert!(parse_order_status(&resp).is_err());
+    }
+
+    // --- funding_history parser tests ---
+
+    #[test]
+    fn parse_funding_history_basic() {
+        let resp = serde_json::json!([
+            {
+                "coin": "BTC",
+                "fundingRate": "0.0001",
+                "premium": "0.00005",
+                "time": 1700000000000_u64
+            },
+            {
+                "coin": "ETH",
+                "fundingRate": "-0.0002",
+                "premium": "0.0001",
+                "time": 1700000000001_u64
+            }
+        ]);
+        let entries = parse_funding_history(&resp).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].coin, "BTC");
+        assert_eq!(
+            entries[0].funding_rate,
+            Decimal::from_str("0.0001").unwrap()
+        );
+        assert_eq!(entries[0].premium, Decimal::from_str("0.00005").unwrap());
+        assert_eq!(entries[0].time, 1700000000000);
+        assert_eq!(entries[1].coin, "ETH");
+        assert_eq!(
+            entries[1].funding_rate,
+            Decimal::from_str("-0.0002").unwrap()
+        );
+    }
+
+    #[test]
+    fn parse_funding_history_empty() {
+        let resp = serde_json::json!([]);
+        let entries = parse_funding_history(&resp).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn parse_funding_history_expects_array() {
+        let resp = serde_json::json!({"not": "an array"});
+        assert!(parse_funding_history(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_funding_history_missing_funding_rate_errors() {
+        let resp = serde_json::json!([{
+            "coin": "BTC", "premium": "0.0", "time": 0
+        }]);
+        assert!(parse_funding_history(&resp).is_err());
+    }
+
+    // --- user_funding parser tests ---
+
+    #[test]
+    fn parse_user_funding_basic() {
+        let resp = serde_json::json!([
+            {
+                "coin": "BTC",
+                "usdc": "-1.5",
+                "szi": "0.5",
+                "fundingRate": "0.0001",
+                "time": 1700000000000_u64
+            }
+        ]);
+        let entries = parse_user_funding(&resp).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].coin, "BTC");
+        assert_eq!(entries[0].usdc, Decimal::from_str("-1.5").unwrap());
+        assert_eq!(entries[0].szi, Decimal::from_str("0.5").unwrap());
+        assert_eq!(
+            entries[0].funding_rate,
+            Decimal::from_str("0.0001").unwrap()
+        );
+        assert_eq!(entries[0].time, 1700000000000);
+    }
+
+    #[test]
+    fn parse_user_funding_empty() {
+        let resp = serde_json::json!([]);
+        let entries = parse_user_funding(&resp).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn parse_user_funding_expects_array() {
+        let resp = serde_json::json!({"not": "an array"});
+        assert!(parse_user_funding(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_user_funding_missing_usdc_errors() {
+        let resp = serde_json::json!([{
+            "coin": "BTC", "szi": "0.5", "fundingRate": "0.0001", "time": 0
+        }]);
+        assert!(parse_user_funding(&resp).is_err());
+    }
+
+    // --- historical_orders parser tests ---
+
+    #[test]
+    fn parse_historical_orders_basic() {
+        let resp = serde_json::json!([
+            {
+                "oid": 777,
+                "coin": "BTC",
+                "side": "A",
+                "limitPx": "65000.0",
+                "sz": "0.1",
+                "timestamp": 1700000000000_u64,
+                "orderType": "Limit",
+                "cloid": "hist-1",
+                "status": "filled"
+            },
+            {
+                "oid": 778,
+                "coin": "ETH",
+                "side": "B",
+                "limitPx": "3000.0",
+                "sz": "1.0",
+                "timestamp": 1700000000001_u64,
+                "orderType": "Limit",
+                "status": "canceled"
+            }
+        ]);
+        let orders = parse_historical_orders(&resp).unwrap();
+        assert_eq!(orders.len(), 2);
+        assert_eq!(orders[0].oid, 777);
+        assert_eq!(orders[0].coin, "BTC");
+        assert_eq!(orders[0].status, "filled");
+        assert_eq!(orders[0].cloid.as_deref(), Some("hist-1"));
+        assert_eq!(orders[1].oid, 778);
+        assert_eq!(orders[1].status, "canceled");
+        assert!(orders[1].cloid.is_none());
+    }
+
+    #[test]
+    fn parse_historical_orders_empty() {
+        let resp = serde_json::json!([]);
+        let orders = parse_historical_orders(&resp).unwrap();
+        assert!(orders.is_empty());
+    }
+
+    #[test]
+    fn parse_historical_orders_expects_array() {
+        let resp = serde_json::json!({"not": "an array"});
+        assert!(parse_historical_orders(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_historical_orders_default_order_type() {
+        let resp = serde_json::json!([{
+            "oid": 1,
+            "coin": "BTC",
+            "side": "B",
+            "limitPx": "100.0",
+            "sz": "1.0",
+            "timestamp": 0,
+            "status": "filled"
+        }]);
+        let orders = parse_historical_orders(&resp).unwrap();
+        assert_eq!(orders[0].order_type, "Limit");
     }
 }
