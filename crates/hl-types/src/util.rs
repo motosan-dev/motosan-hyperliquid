@@ -38,18 +38,21 @@ pub fn parse_str_decimal(val: Option<&serde_json::Value>, field: &str) -> Result
 pub fn normalize_coin(coin: &str) -> Cow<'_, str> {
     let s = coin.trim();
 
-    // Try stripping suffixes — always needs a new String.
+    // Uppercase first so suffix matching is case-insensitive.
+    let upper = s.to_ascii_uppercase();
+
+    // Try stripping suffixes.
     for suffix in &["-PERP", "-USDC", "-USD"] {
-        if let Some(stripped) = s.strip_suffix(suffix) {
-            return Cow::Owned(stripped.to_uppercase());
+        if let Some(stripped) = upper.strip_suffix(suffix) {
+            return Cow::Owned(stripped.to_string());
         }
     }
 
-    // No suffix to strip — borrow if already uppercase.
-    if s.chars().all(|c| !c.is_ascii_lowercase()) {
+    // No suffix — borrow if input was already uppercase.
+    if upper == s {
         Cow::Borrowed(s)
     } else {
-        Cow::Owned(s.to_uppercase())
+        Cow::Owned(upper)
     }
 }
 
@@ -311,5 +314,12 @@ mod tests {
         let result = normalize_coin("BTC-PERP");
         assert!(matches!(result, Cow::Owned(_)));
         assert_eq!(result, "BTC");
+    }
+
+    #[test]
+    fn lowercase_suffix_stripped() {
+        assert_eq!(normalize_coin("BTC-perp"), "BTC");
+        assert_eq!(normalize_coin("eth-usdc"), "ETH");
+        assert_eq!(normalize_coin("sol-usd"), "SOL");
     }
 }

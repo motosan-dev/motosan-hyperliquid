@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use hl_types::{
     parse_str_decimal, HlAccountState, HlActiveAssetData, HlBorrowLendState, HlError, HlFill,
     HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus,
-    HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
+    HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry, TradeSide,
 };
 
 /// A small threshold used to detect zero-size (closed) positions.
@@ -259,7 +259,7 @@ fn parse_order_fields(
     (
         u64,
         String,
-        String,
+        TradeSide,
         Decimal,
         Decimal,
         u64,
@@ -277,11 +277,19 @@ fn parse_order_fields(
         .and_then(|v| v.as_str())
         .ok_or_else(|| HlError::Parse(format!("missing 'coin' in {context}")))?
         .to_string();
-    let side = item
+    let side_str = item
         .get("side")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| HlError::Parse(format!("missing 'side' in {context}")))?
-        .to_string();
+        .ok_or_else(|| HlError::Parse(format!("missing 'side' in {context}")))?;
+    let side = match side_str {
+        "B" => TradeSide::Buy,
+        "A" => TradeSide::Sell,
+        other => {
+            return Err(HlError::Parse(format!(
+                "invalid 'side' value \"{other}\" in {context}, expected \"B\" or \"A\""
+            )))
+        }
+    };
     let limit_px = parse_str_decimal(item.get("limitPx"), "limitPx")?;
     let sz = parse_str_decimal(item.get("sz"), "sz")?;
     let timestamp = item
@@ -1067,7 +1075,7 @@ mod tests {
         assert_eq!(orders.len(), 2);
         assert_eq!(orders[0].oid, 12345);
         assert_eq!(orders[0].coin, "BTC");
-        assert_eq!(orders[0].side, "B");
+        assert_eq!(orders[0].side, TradeSide::Buy);
         assert_eq!(orders[0].limit_px, Decimal::from_str("60000.0").unwrap());
         assert_eq!(orders[0].sz, Decimal::from_str("0.5").unwrap());
         assert_eq!(orders[0].timestamp, 1700000000000);

@@ -126,7 +126,11 @@ impl WsMessage {
                     .iter()
                     .filter_map(|t| {
                         let coin = t.get("coin")?.as_str()?.to_string();
-                        let side = t.get("side")?.as_str()?.to_string();
+                        let side = match t.get("side")?.as_str()? {
+                            "B" => hl_types::TradeSide::Buy,
+                            "A" => hl_types::TradeSide::Sell,
+                            _ => return None,
+                        };
                         let px = Decimal::from_str(t.get("px")?.as_str()?).ok()?;
                         let sz = Decimal::from_str(t.get("sz")?.as_str()?).ok()?;
                         let time = t.get("time").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -191,16 +195,18 @@ impl WsMessage {
                     .as_array()
                     .map(|arr| {
                         arr.iter()
-                            .map(|item| {
-                                let o = item
-                                    .get("order")
-                                    .cloned()
-                                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                            .filter_map(|item| {
+                                let o = item.get("order")?;
                                 let parse_order_dec = |key: &str| -> Decimal {
                                     o.get(key)
                                         .and_then(|v| v.as_str())
                                         .and_then(|s| Decimal::from_str(s).ok())
                                         .unwrap_or_default()
+                                };
+                                let side = match o.get("side")?.as_str()? {
+                                    "B" => hl_types::TradeSide::Buy,
+                                    "A" => hl_types::TradeSide::Sell,
+                                    _ => return None,
                                 };
                                 let order = WsOrderUpdate {
                                     oid: o.get("oid").and_then(|v| v.as_u64()).unwrap_or_default(),
@@ -209,11 +215,7 @@ impl WsMessage {
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("")
                                         .to_string(),
-                                    side: o
-                                        .get("side")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
+                                    side,
                                     limit_px: parse_order_dec("limitPx"),
                                     sz: parse_order_dec("sz"),
                                     orig_sz: parse_order_dec("origSz"),
@@ -222,7 +224,7 @@ impl WsMessage {
                                         .and_then(|v| v.as_str())
                                         .map(|s| s.to_string()),
                                 };
-                                OrderUpdateData {
+                                Some(OrderUpdateData {
                                     order,
                                     status: item
                                         .get("status")
@@ -233,7 +235,7 @@ impl WsMessage {
                                         .get("statusTimestamp")
                                         .and_then(|t| t.as_u64())
                                         .unwrap_or(0),
-                                }
+                                })
                             })
                             .collect()
                     })
@@ -459,7 +461,7 @@ mod tests {
                 assert_eq!(u[0].status, "filled");
                 assert_eq!(u[0].order.oid, 123);
                 assert_eq!(u[0].order.coin, "BTC");
-                assert_eq!(u[0].order.side, "B");
+                assert_eq!(u[0].order.side, hl_types::TradeSide::Buy);
                 assert_eq!(u[0].order.limit_px, Decimal::from_str("90000.0").unwrap());
                 assert_eq!(u[0].order.sz, Decimal::from_str("1.5").unwrap());
                 assert_eq!(u[0].order.orig_sz, Decimal::from_str("2.0").unwrap());
@@ -497,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_order_updates_missing_order_fields_default() {
+    fn parse_order_updates_missing_order_fields_skipped() {
         let raw = serde_json::json!({
             "channel": "orderUpdates",
             "data": [{"order": {}, "status": "canceled", "statusTimestamp": 0}]
@@ -505,10 +507,8 @@ mod tests {
         let msg = WsMessage::parse(raw);
         match msg {
             WsMessage::OrderUpdates(u) => {
-                assert_eq!(u[0].order.oid, 0);
-                assert_eq!(u[0].order.coin, "");
-                assert_eq!(u[0].order.limit_px, Decimal::default());
-                assert_eq!(u[0].status, "canceled");
+                // Entries with missing required fields (e.g. side) are skipped
+                assert!(u.is_empty());
             }
             other => panic!("expected OrderUpdates, got: {other:?}"),
         }
@@ -606,12 +606,12 @@ mod tests {
                 assert_eq!(data.coin, "ETH");
                 assert_eq!(data.trades.len(), 2);
                 assert_eq!(data.trades[0].coin, "ETH");
-                assert_eq!(data.trades[0].side, "B");
+                assert_eq!(data.trades[0].side, hl_types::TradeSide::Buy);
                 assert_eq!(data.trades[0].px, Decimal::from_str("3000.50").unwrap());
                 assert_eq!(data.trades[0].sz, Decimal::from_str("1.2").unwrap());
                 assert_eq!(data.trades[0].time, 1700000000000);
                 assert_eq!(data.trades[0].hash, "0xabc");
-                assert_eq!(data.trades[1].side, "A");
+                assert_eq!(data.trades[1].side, hl_types::TradeSide::Sell);
             }
             other => panic!("expected Trades, got: {:?}", other),
         }

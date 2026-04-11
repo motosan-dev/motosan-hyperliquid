@@ -284,8 +284,8 @@ pub struct HlOpenOrder {
     pub oid: u64,
     /// The coin/asset symbol.
     pub coin: String,
-    /// Order side ("B" for buy, "A" for ask/sell).
-    pub side: String,
+    /// Order side.
+    pub side: crate::market::TradeSide,
     /// Limit price.
     pub limit_px: Decimal,
     /// Order size.
@@ -304,7 +304,7 @@ impl HlOpenOrder {
     pub fn new(
         oid: u64,
         coin: String,
-        side: String,
+        side: crate::market::TradeSide,
         limit_px: Decimal,
         sz: Decimal,
         timestamp: u64,
@@ -333,8 +333,8 @@ pub struct HlOrderDetail {
     pub oid: u64,
     /// The coin/asset symbol.
     pub coin: String,
-    /// Order side ("B" for buy, "A" for ask/sell).
-    pub side: String,
+    /// Order side.
+    pub side: crate::market::TradeSide,
     /// Limit price.
     pub limit_px: Decimal,
     /// Order size.
@@ -355,7 +355,7 @@ impl HlOrderDetail {
     pub fn new(
         oid: u64,
         coin: String,
-        side: String,
+        side: crate::market::TradeSide,
         limit_px: Decimal,
         sz: Decimal,
         timestamp: u64,
@@ -449,8 +449,8 @@ pub struct HlHistoricalOrder {
     pub oid: u64,
     /// The coin/asset symbol.
     pub coin: String,
-    /// Order side ("B" for buy, "A" for ask/sell).
-    pub side: String,
+    /// Order side.
+    pub side: crate::market::TradeSide,
     /// Limit price.
     pub limit_px: Decimal,
     /// Order size.
@@ -471,7 +471,7 @@ impl HlHistoricalOrder {
     pub fn new(
         oid: u64,
         coin: String,
-        side: String,
+        side: crate::market::TradeSide,
         limit_px: Decimal,
         sz: Decimal,
         timestamp: u64,
@@ -560,6 +560,7 @@ impl HlActiveAssetData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::market::TradeSide;
     use std::str::FromStr;
 
     #[test]
@@ -1009,7 +1010,7 @@ mod tests {
         let order = HlOpenOrder {
             oid: 12345,
             coin: "BTC".into(),
-            side: "B".into(),
+            side: TradeSide::Buy,
             limit_px: Decimal::from_str("60000.0").unwrap(),
             sz: Decimal::from_str("0.5").unwrap(),
             timestamp: 1700000000000,
@@ -1020,7 +1021,7 @@ mod tests {
         let parsed: HlOpenOrder = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.oid, 12345);
         assert_eq!(parsed.coin, "BTC");
-        assert_eq!(parsed.side, "B");
+        assert_eq!(parsed.side, TradeSide::Buy);
         assert_eq!(parsed.limit_px, Decimal::from_str("60000.0").unwrap());
         assert_eq!(parsed.sz, Decimal::from_str("0.5").unwrap());
         assert_eq!(parsed.timestamp, 1700000000000);
@@ -1033,7 +1034,7 @@ mod tests {
         let order = HlOpenOrder {
             oid: 99,
             coin: "ETH".into(),
-            side: "A".into(),
+            side: TradeSide::Sell,
             limit_px: Decimal::from_str("3000.0").unwrap(),
             sz: Decimal::ONE,
             timestamp: 0,
@@ -1050,7 +1051,7 @@ mod tests {
         let order = HlOpenOrder {
             oid: 1,
             coin: "X".into(),
-            side: "B".into(),
+            side: TradeSide::Buy,
             limit_px: Decimal::ONE,
             sz: Decimal::ONE,
             timestamp: 0,
@@ -1067,7 +1068,7 @@ mod tests {
         let detail = HlOrderDetail {
             oid: 555,
             coin: "SOL".into(),
-            side: "B".into(),
+            side: TradeSide::Buy,
             limit_px: Decimal::from_str("150.0").unwrap(),
             sz: Decimal::from_str("10.0").unwrap(),
             timestamp: 1700000000000,
@@ -1087,7 +1088,7 @@ mod tests {
         let detail = HlOrderDetail {
             oid: 1,
             coin: "X".into(),
-            side: "B".into(),
+            side: TradeSide::Buy,
             limit_px: Decimal::ONE,
             sz: Decimal::ONE,
             timestamp: 0,
@@ -1164,7 +1165,7 @@ mod tests {
         let order = HlHistoricalOrder {
             oid: 777,
             coin: "BTC".into(),
-            side: "A".into(),
+            side: TradeSide::Sell,
             limit_px: Decimal::from_str("65000.0").unwrap(),
             sz: Decimal::from_str("0.1").unwrap(),
             timestamp: 1700000000000,
@@ -1185,7 +1186,7 @@ mod tests {
         let order = HlHistoricalOrder {
             oid: 1,
             coin: "X".into(),
-            side: "B".into(),
+            side: TradeSide::Buy,
             limit_px: Decimal::ONE,
             sz: Decimal::ONE,
             timestamp: 0,

@@ -10,6 +10,25 @@ use hl_types::{normalize_coin, HlActionResponse, HlError};
 
 use crate::meta_cache::AssetMetaCache;
 
+/// EIP-712 signature chain ID used by Hyperliquid (Arbitrum One, chain ID 42161).
+pub(crate) const SIGNATURE_CHAIN_ID: &str = "0xa4b1";
+
+/// Validate that `addr` looks like a valid Ethereum address (`0x` + 40 hex chars).
+///
+/// Returns `Ok(())` on success, or [`HlError::InvalidAddress`] if the format is wrong.
+pub(crate) fn validate_eth_address(addr: &str) -> Result<(), HlError> {
+    if !addr.starts_with("0x")
+        || addr.len() != 42
+        || !addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return Err(HlError::InvalidAddress(format!(
+            "expected 0x-prefixed 40-hex-char address, got \"{}\"",
+            addr
+        )));
+    }
+    Ok(())
+}
+
 /// Agent approval and admin actions.
 pub mod admin;
 /// Order cancellation (by OID and by CLOID).
@@ -187,7 +206,7 @@ impl OrderExecutor {
         self.meta_cache
             .asset_index_normalized(&coin)
             .ok_or_else(|| {
-                HlError::Parse(format!("Asset '{}' not found in exchange universe", symbol))
+                HlError::Validation(format!("Asset '{}' not found in exchange universe", symbol))
             })
     }
 

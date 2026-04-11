@@ -321,7 +321,9 @@ impl OrderExecutor {
                 } else if sz < Decimal::ZERO {
                     (Side::Buy, sz.abs())
                 } else {
-                    return Err(HlError::Parse("market_close: size must not be zero".into()));
+                    return Err(HlError::Validation(
+                        "market_close: size must not be zero".into(),
+                    ));
                 }
             }
             None => {

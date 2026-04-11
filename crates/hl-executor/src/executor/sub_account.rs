@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 
 use hl_types::{HlActionResponse, HlError};
 
-use super::OrderExecutor;
+use super::{validate_eth_address, OrderExecutor};
 
 impl OrderExecutor {
     /// Create a new sub-account under the master wallet.
@@ -35,6 +35,7 @@ impl OrderExecutor {
         name: &str,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(sub_account_user)?;
         let action = serde_json::json!({
             "type": "subAccountModify",
             "subAccountUser": sub_account_user,
@@ -60,8 +61,9 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(sub_account_user)?;
         if amount <= Decimal::ZERO {
-            return Err(HlError::Parse(
+            return Err(HlError::Validation(
                 "sub_account_transfer amount must be positive".into(),
             ));
         }
@@ -69,7 +71,7 @@ impl OrderExecutor {
         // Truncate to 6 decimal places (micro-units), then convert to integer
         let micro = (amount * Decimal::from(1_000_000)).trunc();
         let micro_u64: u64 = micro.to_string().parse().map_err(|e| {
-            HlError::Parse(format!(
+            HlError::Validation(format!(
                 "sub_account_transfer: amount {} converts to invalid micro-units: {e}",
                 amount
             ))

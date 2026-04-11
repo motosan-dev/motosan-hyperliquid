@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 
 use hl_types::{HlActionResponse, HlError};
 
-use super::OrderExecutor;
+use super::{validate_eth_address, OrderExecutor, SIGNATURE_CHAIN_ID};
 
 impl OrderExecutor {
     /// Transfer USDC into a vault.
@@ -12,6 +12,7 @@ impl OrderExecutor {
         vault: &str,
         amount: Decimal,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(vault)?;
         let action = serde_json::json!({
             "type": "vaultTransfer",
             "vaultAddress": vault,
@@ -33,12 +34,13 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(destination)?;
         let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "usdSend",
             "hyperliquidChain": chain,
-            "signatureChainId": "0xa4b1",
+            "signatureChainId": SIGNATURE_CHAIN_ID,
             "destination": destination,
             "amount": amount.to_string(),
             "time": nonce,
@@ -78,12 +80,13 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(destination)?;
         let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "withdraw3",
             "hyperliquidChain": chain,
-            "signatureChainId": "0xa4b1",
+            "signatureChainId": SIGNATURE_CHAIN_ID,
             "destination": destination,
             "amount": amount.to_string(),
             "time": nonce,
@@ -127,12 +130,13 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(destination)?;
         let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "spotSend",
             "hyperliquidChain": chain,
-            "signatureChainId": "0xa4b1",
+            "signatureChainId": SIGNATURE_CHAIN_ID,
             "destination": destination,
             "token": token,
             "amount": amount.to_string(),
@@ -177,14 +181,14 @@ impl OrderExecutor {
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
         if amount <= Decimal::ZERO {
-            return Err(HlError::Parse(
+            return Err(HlError::Validation(
                 "class_transfer amount must be positive".into(),
             ));
         }
         // Truncate to 6 decimal places (micro-units), then convert to integer
         let micro = (amount * Decimal::from(1_000_000)).trunc();
         let micro_u64: u64 = micro.to_string().parse().map_err(|e| {
-            HlError::Parse(format!(
+            HlError::Validation(format!(
                 "class_transfer: amount {} converts to invalid micro-units: {e}",
                 amount
             ))

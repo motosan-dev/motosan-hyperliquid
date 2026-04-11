@@ -1,6 +1,6 @@
 use hl_types::{HlActionResponse, HlError};
 
-use super::OrderExecutor;
+use super::{validate_eth_address, OrderExecutor, SIGNATURE_CHAIN_ID};
 
 impl OrderExecutor {
     /// Approve a trading agent for this account.
@@ -13,12 +13,13 @@ impl OrderExecutor {
         agent_name: Option<&str>,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(agent_address)?;
         let chain = self.chain_name();
         let nonce = self.next_nonce();
         let mut action = serde_json::json!({
             "type": "approveAgent",
             "hyperliquidChain": chain,
-            "signatureChainId": "0xa4b1",
+            "signatureChainId": SIGNATURE_CHAIN_ID,
             "agentAddress": agent_address,
             "nonce": nonce,
         });
@@ -114,12 +115,13 @@ impl OrderExecutor {
         max_fee_rate: &str,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(builder)?;
         let chain = self.chain_name();
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "approveBuilderFee",
             "hyperliquidChain": chain,
-            "signatureChainId": "0xa4b1",
+            "signatureChainId": SIGNATURE_CHAIN_ID,
             "maxFeeRate": max_fee_rate,
             "builder": builder,
             "nonce": nonce,

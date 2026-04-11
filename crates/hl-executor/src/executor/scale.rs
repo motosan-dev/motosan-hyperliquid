@@ -25,7 +25,7 @@ impl OrderExecutor {
     ///
     /// # Errors
     ///
-    /// Returns [`HlError::Parse`] if validation fails (e.g. `num_orders < 2`,
+    /// Returns [`HlError::Validation`] if inputs are invalid (e.g. `num_orders < 2`,
     /// `price_low >= price_high`, `total_size <= 0`).
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip(self))]
@@ -42,17 +42,17 @@ impl OrderExecutor {
     ) -> Result<Vec<OrderResponse>, HlError> {
         // --- Validation ---
         if num_orders < 2 {
-            return Err(HlError::Parse(
+            return Err(HlError::Validation(
                 "scale order requires at least 2 orders".into(),
             ));
         }
         if price_low >= price_high {
-            return Err(HlError::Parse(
+            return Err(HlError::Validation(
                 "price_low must be less than price_high".into(),
             ));
         }
         if total_size <= Decimal::ZERO {
-            return Err(HlError::Parse("total_size must be positive".into()));
+            return Err(HlError::Validation("total_size must be positive".into()));
         }
 
         let asset_idx = self.resolve_asset(symbol)?;

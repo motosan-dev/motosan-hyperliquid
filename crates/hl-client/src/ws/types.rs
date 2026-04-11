@@ -147,8 +147,8 @@ pub struct L2BookData {
 pub struct WsTrade {
     /// The coin symbol (e.g. `"BTC"`).
     pub coin: String,
-    /// Trade side: `"B"` for buy, `"A"` for sell.
-    pub side: String,
+    /// Trade side.
+    pub side: hl_types::TradeSide,
     /// Execution price.
     pub px: Decimal,
     /// Execution size.
@@ -207,8 +207,8 @@ pub struct WsOrderUpdate {
     pub oid: u64,
     /// The coin symbol (e.g. `"BTC"`).
     pub coin: String,
-    /// Trade side: `"B"` for buy, `"A"` for sell.
-    pub side: String,
+    /// Order side.
+    pub side: hl_types::TradeSide,
     /// Limit price of the order.
     pub limit_px: Decimal,
     /// Current remaining size.

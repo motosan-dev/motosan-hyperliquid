@@ -75,6 +75,9 @@ pub enum HlError {
     /// A JSON or data parsing error.
     #[error("Parse error: {0}")]
     Parse(String),
+    /// An input validation error (bad parameters, invalid amounts, unknown assets).
+    #[error("Validation error: {0}")]
+    Validation(String),
     /// A configuration error (invalid settings, missing keys, etc.).
     #[error("Config error: {0}")]
     Config(String),
