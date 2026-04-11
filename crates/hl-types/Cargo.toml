@@ -16,3 +16,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 rust_decimal.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "parsing"
+harness = false
