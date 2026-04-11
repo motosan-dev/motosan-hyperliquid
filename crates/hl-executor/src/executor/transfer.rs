@@ -201,3 +201,156 @@ impl OrderExecutor {
             .map_err(|e| HlError::Parse(format!("class_transfer response: {e}")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use async_trait::async_trait;
+    use hl_client::HttpTransport;
+    use hl_signing::PrivateKeySigner;
+    use hl_types::Signature;
+    use std::sync::{Arc, Mutex};
+
+    use crate::meta_cache::AssetMetaCache;
+
+    struct MockTransport {
+        responses: Mutex<Vec<serde_json::Value>>,
+        is_mainnet: bool,
+    }
+
+    impl MockTransport {
+        fn new(responses: Vec<serde_json::Value>) -> Self {
+            Self {
+                responses: Mutex::new(responses),
+                is_mainnet: true,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for MockTransport {
+        async fn post_info(&self, _req: serde_json::Value) -> Result<serde_json::Value, HlError> {
+            let mut q = self.responses.lock().unwrap();
+            if q.is_empty() {
+                return Err(HlError::http("no mock responses"));
+            }
+            Ok(q.remove(0))
+        }
+
+        async fn post_action(
+            &self,
+            _action: serde_json::Value,
+            _sig: &Signature,
+            _nonce: u64,
+            _vault: Option<&str>,
+        ) -> Result<serde_json::Value, HlError> {
+            let mut q = self.responses.lock().unwrap();
+            if q.is_empty() {
+                return Err(HlError::http("no mock responses"));
+            }
+            Ok(q.remove(0))
+        }
+
+        fn is_mainnet(&self) -> bool {
+            self.is_mainnet
+        }
+    }
+
+    fn test_signer() -> Box<dyn hl_signing::Signer> {
+        Box::new(
+            PrivateKeySigner::from_hex(
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+            )
+            .unwrap(),
+        )
+    }
+
+    fn test_executor(responses: Vec<serde_json::Value>) -> OrderExecutor {
+        let mut name_to_idx = std::collections::HashMap::new();
+        name_to_idx.insert("BTC".to_string(), 0u32);
+        name_to_idx.insert("ETH".to_string(), 1u32);
+        let cache = AssetMetaCache::from_maps(name_to_idx, Default::default());
+        OrderExecutor::with_meta_cache(
+            Arc::new(MockTransport::new(responses)),
+            test_signer(),
+            "0x0000000000000000000000000000000000000001".to_string(),
+            cache,
+        )
+    }
+
+    fn ok_response() -> serde_json::Value {
+        serde_json::json!({"status": "ok", "response": {"type": "default"}})
+    }
+
+    #[tokio::test]
+    async fn usdc_transfer_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .usdc_transfer(
+                "0x0000000000000000000000000000000000000002",
+                Decimal::from(100),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn withdraw_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .withdraw(
+                "0x0000000000000000000000000000000000000002",
+                Decimal::from(50),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn spot_send_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .spot_send(
+                "0x0000000000000000000000000000000000000002",
+                "PURR:0xabcdef",
+                Decimal::from(10),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn class_transfer_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .class_transfer(Decimal::from(100), true, None)
+            .await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn class_transfer_rejects_zero_amount() {
+        let executor = test_executor(vec![]);
+        let result = executor.class_transfer(Decimal::ZERO, true, None).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn class_transfer_rejects_negative_amount() {
+        let executor = test_executor(vec![]);
+        let result = executor.class_transfer(Decimal::from(-5), true, None).await;
+        assert!(result.is_err());
+    }
+}
