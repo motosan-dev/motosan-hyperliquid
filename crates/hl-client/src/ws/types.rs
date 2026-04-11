@@ -1,3 +1,4 @@
+use hl_types::HlCandle;
 use rust_decimal::Decimal;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -46,6 +47,19 @@ pub enum Subscription {
     UserTwapSliceFills { user: String },
 }
 
+/// A single price level in the L2 orderbook.
+///
+/// Each level represents an aggregate of orders at a given price.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PriceLevel {
+    /// Price at this level.
+    pub px: Decimal,
+    /// Aggregate size at this level.
+    pub sz: Decimal,
+    /// Number of orders at this level.
+    pub n: u32,
+}
+
 /// Data received from the `allMids` WebSocket channel.
 ///
 /// Contains mid prices for all assets, updated on every trade or book change.
@@ -65,8 +79,8 @@ pub struct L2BookData {
     /// The coin symbol this orderbook belongs to (e.g. `"BTC"`).
     pub coin: String,
     /// Bid and ask levels as a two-element array: `[bids, asks]`.
-    /// Each side is an array of `{"px": "<price>", "sz": "<size>"}` objects.
-    pub levels: serde_json::Value,
+    /// Each side is a `Vec<PriceLevel>` with price, size, and order count.
+    pub levels: Vec<Vec<PriceLevel>>,
     /// Server-side timestamp in milliseconds since the Unix epoch.
     pub time: u64,
 }
@@ -108,8 +122,8 @@ pub struct TradesData {
 pub struct CandleData {
     /// The coin symbol this candle belongs to (e.g. `"BTC"`).
     pub coin: String,
-    /// The candle object containing `t`, `o`, `h`, `l`, `c`, `v` fields.
-    pub candle: serde_json::Value,
+    /// The OHLCV candle data.
+    pub candle: HlCandle,
 }
 
 /// Data received from the `bbo` (best bid/offer) WebSocket channel.
@@ -131,13 +145,32 @@ pub struct BboData {
     pub time: u64,
 }
 
+/// A strongly-typed order snapshot from the `orderUpdates` WebSocket channel.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WsOrderUpdate {
+    /// Unique order ID assigned by the exchange.
+    pub oid: u64,
+    /// The coin symbol (e.g. `"BTC"`).
+    pub coin: String,
+    /// Trade side: `"B"` for buy, `"A"` for sell.
+    pub side: String,
+    /// Limit price of the order.
+    pub limit_px: Decimal,
+    /// Current remaining size.
+    pub sz: Decimal,
+    /// Original order size.
+    pub orig_sz: Decimal,
+    /// Optional client-assigned order ID.
+    pub cloid: Option<String>,
+}
+
 /// Data for a single order status change from the `orderUpdates` channel.
 ///
 /// Pushed whenever an order is opened, filled, cancelled, or otherwise changes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OrderUpdateData {
-    /// The full order object including `oid`, `coin`, `side`, `limitPx`, `sz`.
-    pub order: serde_json::Value,
+    /// The strongly-typed order snapshot.
+    pub order: WsOrderUpdate,
     /// The new order status (e.g. `"open"`, `"filled"`, `"canceled"`).
     pub status: String,
     /// Timestamp in milliseconds when this status change occurred.
