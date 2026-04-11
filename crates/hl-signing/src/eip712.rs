@@ -3,7 +3,7 @@
 //! Public API signatures are preserved for backward compatibility.
 //! Internally, a [`SingleAddressSigner`](crate::SingleAddressSigner)
 //! bridges the hl-signing [`Signer`](crate::Signer) trait to motosan-wallet-core's
-//! [`HlSigner`] so the actual EIP-712 logic lives in one place.
+//! `HlSigner` so the actual EIP-712 logic lives in one place.
 
 use crate::Signer;
 use crate::SingleAddressSigner;

@@ -102,7 +102,7 @@ impl OrderExecutor {
         })
     }
 
-    /// Convenience constructor that wraps a [`HyperliquidClient`] in an `Arc`.
+    /// Convenience constructor that wraps a [`hl_client::HyperliquidClient`] in an `Arc`.
     pub async fn from_client(
         client: hl_client::HyperliquidClient,
         signer: Box<dyn Signer>,
@@ -127,7 +127,7 @@ impl OrderExecutor {
         }
     }
 
-    /// Convenience constructor with meta cache that wraps a [`HyperliquidClient`] in an `Arc`.
+    /// Convenience constructor with meta cache that wraps a [`hl_client::HyperliquidClient`] in an `Arc`.
     pub fn from_client_with_meta_cache(
         client: hl_client::HyperliquidClient,
         signer: Box<dyn Signer>,

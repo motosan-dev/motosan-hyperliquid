@@ -9,7 +9,7 @@ impl OrderExecutor {
     /// Place a spot limit order.
     ///
     /// The `OrderWire` must have its `asset` field set to a **spot token index**
-    /// (from [`AssetMetaCache::spot_asset_index`]). The wire format is identical
+    /// (from [`crate::AssetMetaCache::spot_asset_index`]). The wire format is identical
     /// to perp orders — only the asset index differs.
     ///
     /// This is a convenience wrapper around [`place_order`](Self::place_order).

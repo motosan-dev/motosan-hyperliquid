@@ -1,6 +1,6 @@
 //! Proactive token-bucket rate limiter and concurrency gate.
 //!
-//! Applied before the retry loop in [`super::client::HyperliquidClient`] to
+//! Applied before the retry loop in [`crate::HyperliquidClient`] to
 //! prevent thundering-herd 429 responses.
 
 use std::sync::atomic::{AtomicU32, Ordering};
