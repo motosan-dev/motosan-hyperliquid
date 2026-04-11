@@ -8,16 +8,23 @@
 //!
 //! This crate has no network dependencies.
 
-// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
+/// Account state types (positions, fills, vaults, fees, etc.).
 pub mod account;
+/// OHLCV candlestick types.
 pub mod candle;
+/// Unified error type used across all SDK crates.
 pub mod error;
+/// Market data types (orderbook, asset info, funding rates, trades).
 pub mod market;
+/// Order wire types (order builders, cancel/modify requests, enums).
 pub mod order;
+/// Exchange action and order response types.
 pub mod response;
+/// ECDSA signature type (r, s, v components).
 pub mod signature;
+/// Utility functions (coin normalization, JSON parsing helpers).
 pub mod util;
 
 pub use account::{

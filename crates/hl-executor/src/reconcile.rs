@@ -28,10 +28,13 @@ const SIZE_TOLERANCE_BPS: Decimal = Decimal::from_parts(1, 0, 0, false, 3); // 0
 /// A position tracked by the caller (e.g. from a local database).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalPosition {
+    /// Caller-assigned position identifier.
     pub id: String,
+    /// Coin/asset symbol (e.g. `"BTC"`).
     pub coin: String,
     /// Position side: long or short.
     pub side: PositionSide,
+    /// Absolute position size.
     pub size: Decimal,
 }
 
@@ -41,20 +44,34 @@ pub struct LocalPosition {
 pub enum ReconcileAction {
     /// A local open position no longer exists on the exchange and should be
     /// closed.
-    ClosedStale { id: String, market: String },
+    ClosedStale {
+        /// Local position ID that should be closed.
+        id: String,
+        /// Market/coin symbol.
+        market: String,
+    },
     /// A position exists on the exchange but was missing locally.
     AddedMissing {
+        /// Market/coin symbol.
         market: String,
+        /// Position side on the exchange.
         side: PositionSide,
+        /// Position size on the exchange.
         size: Decimal,
+        /// Entry price on the exchange.
         entry_price: Decimal,
     },
     /// A local position's size or side diverged from the exchange.
     Updated {
+        /// Market/coin symbol.
         market: String,
+        /// Previous local size.
         old_size: Decimal,
+        /// Current exchange size.
         new_size: Decimal,
+        /// Previous local side.
         old_side: PositionSide,
+        /// Current exchange side.
         new_side: PositionSide,
     },
 }
@@ -63,8 +80,11 @@ pub enum ReconcileAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ReconcileReport {
+    /// List of reconciliation actions that should be taken.
     pub actions: Vec<ReconcileAction>,
+    /// Number of non-zero positions found on the exchange.
     pub exchange_position_count: usize,
+    /// Number of local positions provided by the caller.
     pub local_position_count: usize,
 }
 

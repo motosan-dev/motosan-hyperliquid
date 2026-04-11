@@ -18,11 +18,14 @@ use motosan_wallet_core::HlTypeField;
 /// Describes a single field in an EIP-712 struct type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EIP712Field {
+    /// Field name (e.g. `"agentAddress"`).
     pub name: String,
+    /// Solidity type (e.g. `"address"`, `"uint64"`, `"string"`).
     pub field_type: String,
 }
 
 impl EIP712Field {
+    /// Creates a new `EIP712Field`.
     pub fn new(name: &str, field_type: &str) -> Self {
         Self {
             name: name.to_string(),

@@ -12,39 +12,94 @@ pub enum Subscription {
     /// Subscribe to all mid-prices.
     AllMids,
     /// Subscribe to L2 orderbook updates for a coin.
-    L2Book { coin: String },
+    L2Book {
+        /// Coin symbol to subscribe to.
+        coin: String,
+    },
     /// Subscribe to trades for a coin.
-    Trades { coin: String },
+    Trades {
+        /// Coin symbol to subscribe to.
+        coin: String,
+    },
     /// Subscribe to candle (OHLCV) updates for a coin and interval.
-    Candle { coin: String, interval: String },
+    Candle {
+        /// Coin symbol to subscribe to.
+        coin: String,
+        /// Candle interval (e.g. `"1m"`, `"1h"`, `"1d"`).
+        interval: String,
+    },
     /// Subscribe to best bid/offer updates for a coin.
-    Bbo { coin: String },
+    Bbo {
+        /// Coin symbol to subscribe to.
+        coin: String,
+    },
     /// Subscribe to order updates for a user.
-    OrderUpdates { user: String },
+    OrderUpdates {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to all user events.
-    UserEvents { user: String },
+    UserEvents {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to user fill events.
-    UserFills { user: String },
+    UserFills {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to user funding events.
-    UserFundings { user: String },
+    UserFundings {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to user non-funding ledger updates.
-    UserNonFundingLedgerUpdates { user: String },
+    UserNonFundingLedgerUpdates {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to notifications for a user.
-    Notification { user: String },
+    Notification {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to web data v2 for a user.
-    WebData2 { user: String },
+    WebData2 {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to web data v3 (aggregate user info).
-    WebData3 { user: String },
+    WebData3 {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to clearinghouse state updates.
-    ClearinghouseState { user: String },
+    ClearinghouseState {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to active asset context.
-    ActiveAssetCtx { coin: String },
+    ActiveAssetCtx {
+        /// Coin symbol to subscribe to.
+        coin: String,
+    },
     /// Subscribe to active asset data.
-    ActiveAssetData { user: String, coin: String },
+    ActiveAssetData {
+        /// User Ethereum address.
+        user: String,
+        /// Coin symbol to subscribe to.
+        coin: String,
+    },
     /// Subscribe to user TWAP history.
-    UserTwapHistory { user: String },
+    UserTwapHistory {
+        /// User Ethereum address.
+        user: String,
+    },
     /// Subscribe to user TWAP slice fills.
-    UserTwapSliceFills { user: String },
+    UserTwapSliceFills {
+        /// User Ethereum address.
+        user: String,
+    },
 }
 
 /// A single price level in the L2 orderbook.

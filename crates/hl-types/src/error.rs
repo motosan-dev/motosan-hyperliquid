@@ -2,55 +2,91 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum HlError {
+    /// An error occurred during EIP-712 signing.
     #[error("Signing error: {message}")]
     Signing {
+        /// Human-readable description of the signing failure.
         message: String,
+        /// Optional underlying error that caused this failure.
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
+    /// An error occurred during serialization or deserialization.
     #[error("Serialization error: {message}")]
     Serialization {
+        /// Human-readable description of the serialization failure.
         message: String,
+        /// Optional underlying error that caused this failure.
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
+    /// An HTTP transport error (connection refused, DNS failure, etc.).
     #[error("HTTP error: {message}")]
     Http {
+        /// Human-readable description of the HTTP failure.
         message: String,
+        /// Optional underlying error that caused this failure.
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
+    /// The request timed out before receiving a response.
     #[error("Timeout: {message}")]
     Timeout {
+        /// Human-readable description of the timeout.
         message: String,
+        /// Optional underlying error that caused this failure.
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
+    /// A WebSocket transport error (connection lost, frame error, etc.).
     #[error("WebSocket error: {message}")]
     WebSocket {
+        /// Human-readable description of the WebSocket failure.
         message: String,
+        /// Optional underlying error that caused this failure.
         #[source]
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
+    /// The API returned a non-2xx HTTP status code.
     #[error("API error (HTTP {status}): {body}")]
-    Api { status: u16, body: String },
+    Api {
+        /// HTTP status code returned by the API.
+        status: u16,
+        /// Response body text.
+        body: String,
+    },
+    /// The exchange rejected the order.
     #[error("Order rejected: {reason}")]
-    Rejected { reason: String },
+    Rejected {
+        /// Rejection reason provided by the exchange.
+        reason: String,
+    },
+    /// The provided Ethereum address is invalid.
     #[error("Invalid address: {0}")]
     InvalidAddress(String),
+    /// The API returned HTTP 429 (rate limited).
     #[error("Rate limited (429): retry after {retry_after_ms}ms")]
     RateLimited {
+        /// Suggested wait time in milliseconds before retrying.
         retry_after_ms: u64,
+        /// Human-readable rate-limit message.
         message: String,
     },
+    /// A JSON or data parsing error.
     #[error("Parse error: {0}")]
     Parse(String),
+    /// A configuration error (invalid settings, missing keys, etc.).
     #[error("Config error: {0}")]
     Config(String),
+    /// The WebSocket reconnect loop was cancelled.
     #[error("WebSocket reconnect cancelled")]
     WsCancelled,
+    /// The WebSocket reconnect loop exhausted all retry attempts.
     #[error("WebSocket reconnect failed after {attempts} attempts")]
-    WsReconnectExhausted { attempts: u32 },
+    WsReconnectExhausted {
+        /// Number of reconnect attempts made before giving up.
+        attempts: u32,
+    },
 }
 
 impl HlError {

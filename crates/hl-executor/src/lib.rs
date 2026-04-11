@@ -4,11 +4,13 @@
 //! orders (stop-loss, take-profit), vault transfers, and position
 //! reconciliation. Handles EIP-712 signing and nonce management internally.
 
-// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
+/// Order execution engine (place, cancel, modify, trigger, TWAP, transfers).
 pub mod executor;
+/// Asset metadata cache for resolving coin symbols to asset IDs.
 pub mod meta_cache;
+/// Position reconciliation between local state and the exchange.
 pub mod reconcile;
 
 pub use executor::OrderExecutor;

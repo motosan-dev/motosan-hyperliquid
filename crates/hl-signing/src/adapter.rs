@@ -15,6 +15,7 @@ pub struct SingleAddressSigner<'a, S: Signer + ?Sized> {
 }
 
 impl<'a, S: Signer + ?Sized> SingleAddressSigner<'a, S> {
+    /// Creates a new adapter wrapping the given signer and fixed address.
     pub fn new(signer: &'a S, address: String) -> Self {
         Self { signer, address }
     }
