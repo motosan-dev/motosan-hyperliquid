@@ -156,3 +156,84 @@ async fn subscribe_receive_trades() {
     }
     // If timed out, that's OK — we verified the subscription worked without error
 }
+
+/// Connect to testnet WS, subscribe to L2Book for BTC, and verify we
+/// receive a typed L2Book message with the correct coin and non-empty levels.
+#[tokio::test]
+#[ignore]
+async fn subscribe_receive_l2_book() {
+    let token = CancellationToken::new();
+    let config = WsConfig::default()
+        .max_reconnect_attempts(3)
+        .cancellation_token(token.clone());
+
+    let mut ws = HyperliquidWs::testnet_with_config(config);
+    ws.connect().await.expect("WS connect failed");
+    ws.subscribe_typed(Subscription::L2Book { coin: "BTC".into() })
+        .await
+        .expect("subscribe L2Book failed");
+
+    let timeout = tokio::time::Duration::from_secs(30);
+    let result = tokio::time::timeout(timeout, async {
+        loop {
+            match ws.next_typed_message().await {
+                Some(Ok(WsMessage::L2Book(data))) => {
+                    return data;
+                }
+                Some(Ok(WsMessage::SubscriptionResponse | WsMessage::Pong)) => continue,
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => panic!("WS error: {e}"),
+                None => panic!("WS closed before receiving L2Book"),
+            }
+        }
+    })
+    .await;
+
+    token.cancel();
+
+    let book = result.expect("timed out waiting for L2Book message");
+    assert_eq!(book.coin, "BTC", "L2Book coin should be BTC");
+    assert!(!book.levels.is_empty(), "L2Book levels should not be empty");
+}
+
+/// Connect to testnet WS, subscribe to 1m candles for BTC, and verify we
+/// receive a typed Candle message with the correct coin.
+#[tokio::test]
+#[ignore]
+async fn subscribe_receive_candle() {
+    let token = CancellationToken::new();
+    let config = WsConfig::default()
+        .max_reconnect_attempts(3)
+        .cancellation_token(token.clone());
+
+    let mut ws = HyperliquidWs::testnet_with_config(config);
+    ws.connect().await.expect("WS connect failed");
+    ws.subscribe_typed(Subscription::Candle {
+        coin: "BTC".into(),
+        interval: "1m".into(),
+    })
+    .await
+    .expect("subscribe Candle failed");
+
+    // Candle updates on testnet can be slow (up to 60s for 1m interval)
+    let timeout = tokio::time::Duration::from_secs(60);
+    let result = tokio::time::timeout(timeout, async {
+        loop {
+            match ws.next_typed_message().await {
+                Some(Ok(WsMessage::Candle(data))) => {
+                    return data;
+                }
+                Some(Ok(WsMessage::SubscriptionResponse | WsMessage::Pong)) => continue,
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => panic!("WS error: {e}"),
+                None => panic!("WS closed before receiving Candle"),
+            }
+        }
+    })
+    .await;
+
+    token.cancel();
+
+    let candle = result.expect("timed out waiting for Candle message");
+    assert_eq!(candle.coin, "BTC", "Candle coin should be BTC");
+}

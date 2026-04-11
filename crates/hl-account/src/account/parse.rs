@@ -503,10 +503,7 @@ pub(crate) fn parse_active_asset_data(
         .to_string();
 
     let leverage = if let Some(obj) = resp.get("leverage").and_then(|v| v.as_object()) {
-        obj.get("value")
-            .and_then(|v| v.as_u64())
-            .map(Decimal::from)
-            .unwrap_or(Decimal::ONE)
+        parse_str_decimal(obj.get("value"), "leverage.value")?
     } else {
         parse_str_decimal(resp.get("leverage"), "leverage")?
     };
@@ -519,13 +516,22 @@ pub(crate) fn parse_active_asset_data(
         .filter_map(|v| parse_str_decimal(Some(v), "maxTradeSzs").ok())
         .collect();
 
-    let margin_used = parse_str_decimal(resp.get("marginUsed"), "marginUsed")?;
+    let available_to_trade = resp
+        .get("availableToTrade")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|v| parse_str_decimal(Some(v), "availableToTrade").ok())
+        .collect();
+
+    let mark_px = parse_str_decimal(resp.get("markPx"), "markPx")?;
 
     Ok(HlActiveAssetData::new(
         coin,
         leverage,
         max_trade_szs,
-        margin_used,
+        available_to_trade,
+        mark_px,
     ))
 }
 

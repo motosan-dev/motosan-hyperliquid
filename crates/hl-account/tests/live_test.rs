@@ -63,3 +63,66 @@ async fn live_historical_orders() {
         result.err()
     );
 }
+
+#[tokio::test]
+#[ignore]
+async fn live_vault_summaries() {
+    let (acc, addr) = account();
+    let result = acc.vault_summaries(&addr).await;
+    assert!(result.is_ok(), "vault_summaries failed: {:?}", result.err());
+    // May be empty if the account has no vault participation
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_order_status() {
+    let (acc, addr) = account();
+    // OID 1 almost certainly doesn't exist for a testnet account, so we
+    // tolerate both Ok and Err — the important thing is no panic.
+    let _result = acc.order_status(&addr, 1).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_referral_state() {
+    let (acc, addr) = account();
+    // Testnet may not have referral data, so accept Ok or a parse error.
+    match acc.referral_state(&addr).await {
+        Ok(_state) => {} // great
+        Err(e) => {
+            // Parse errors are tolerable on testnet; network errors are not.
+            let msg = format!("{e:?}");
+            assert!(
+                msg.contains("Parse") || msg.contains("parse"),
+                "unexpected error (not a parse error): {e:?}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_staking_delegations() {
+    let (acc, addr) = account();
+    let result = acc.staking_delegations(&addr).await;
+    // The stakingDelegations endpoint may not be available on testnet.
+    // Accept both Ok (with possibly empty vec) and Serialization errors.
+    match &result {
+        Ok(_) => {}                                        // pass
+        Err(hl_types::HlError::Serialization { .. }) => {} // endpoint not available on testnet
+        Err(e) => panic!("unexpected staking_delegations error: {e:?}"),
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_borrow_lend_state() {
+    let (acc, addr) = account();
+    let result = acc.borrow_lend_state(&addr).await;
+    assert!(
+        result.is_ok(),
+        "borrow_lend_state failed: {:?}",
+        result.err()
+    );
+    // May be empty if the account has no borrow/lend positions
+}

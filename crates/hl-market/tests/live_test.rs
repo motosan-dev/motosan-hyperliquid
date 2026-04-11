@@ -1,6 +1,6 @@
 use hl_client::HyperliquidClient;
 use hl_market::MarketData;
-use hl_types::Decimal;
+use hl_types::{AssetContext, Decimal, HlAssetInfo, HlSpotMeta};
 
 fn market() -> MarketData {
     let client = HyperliquidClient::testnet().unwrap();
@@ -73,4 +73,76 @@ async fn live_mid_price() {
     assert!(price.is_ok(), "mid_price failed: {:?}", price.err());
     let price = price.unwrap();
     assert!(price > Decimal::ZERO, "BTC mid price should be positive");
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_all_mids() {
+    let m = market();
+    let mids = m.all_mids().await;
+    assert!(mids.is_ok(), "all_mids failed: {:?}", mids.err());
+    let mids = mids.unwrap();
+    assert!(!mids.is_empty(), "should return at least one mid price");
+    assert!(mids.contains_key("BTC"), "BTC should be in all_mids");
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_recent_trades() {
+    let m = market();
+    let trades = m.recent_trades("BTC").await;
+    assert!(trades.is_ok(), "recent_trades failed: {:?}", trades.err());
+    // Trades may be empty on testnet, just verify the call succeeded
+    let _trades = trades.unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_spot_meta() {
+    let m = market();
+    let meta = m.spot_meta().await;
+    assert!(meta.is_ok(), "spot_meta failed: {:?}", meta.err());
+    let meta: HlSpotMeta = meta.unwrap();
+    assert!(
+        !meta.tokens.is_empty(),
+        "should return at least one spot token"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_meta_and_asset_contexts() {
+    let m = market();
+    let result = m.meta_and_asset_contexts().await;
+    assert!(
+        result.is_ok(),
+        "meta_and_asset_contexts failed: {:?}",
+        result.err()
+    );
+    let (infos, ctxs): (Vec<HlAssetInfo>, Vec<AssetContext>) = result.unwrap();
+    assert!(!infos.is_empty(), "should return asset infos");
+    assert!(!ctxs.is_empty(), "should return asset contexts");
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_perp_dex_status() {
+    let m = market();
+    // "hyperliquid" may or may not be a valid dex name on testnet;
+    // we just verify the call doesn't panic.
+    let result = m.perp_dex_status("hyperliquid").await;
+    // Accept either Ok or a known error — just verify no panic
+    if let Ok(status) = result {
+        assert!(!status.name.is_empty(), "dex name should not be empty");
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_perps_at_oi_cap() {
+    let m = market();
+    let result = m.perps_at_oi_cap().await;
+    assert!(result.is_ok(), "perps_at_oi_cap failed: {:?}", result.err());
+    // May be empty — just verify it returns a valid Vec
+    let _perps: Vec<String> = result.unwrap();
 }

@@ -105,6 +105,21 @@ async fn funding_history_query() {
     );
 }
 
+/// Query active asset data for BTC and verify the coin field matches.
+#[tokio::test]
+#[ignore]
+async fn live_active_asset_data() {
+    let (acc, addr) = account();
+    let result = acc.active_asset_data(&addr, "BTC").await;
+    assert!(
+        result.is_ok(),
+        "active_asset_data failed: {:?}",
+        result.err()
+    );
+    let data = result.unwrap();
+    assert_eq!(data.coin, "BTC", "coin field should be BTC");
+}
+
 // NOTE: batch_clearinghouse_states removed — the Hyperliquid API does not
 // support a "clearinghouseStates" (plural) endpoint. Use individual
 // `clearinghouseState` queries per address instead.

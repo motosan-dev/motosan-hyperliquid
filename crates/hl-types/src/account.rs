@@ -536,8 +536,10 @@ pub struct HlActiveAssetData {
     pub leverage: Decimal,
     /// Maximum trade sizes (buy/sell).
     pub max_trade_szs: Vec<Decimal>,
-    /// Margin currently used for this asset.
-    pub margin_used: Decimal,
+    /// Available to trade amounts (buy/sell).
+    pub available_to_trade: Vec<Decimal>,
+    /// Current mark price.
+    pub mark_px: Decimal,
 }
 
 impl HlActiveAssetData {
@@ -546,13 +548,15 @@ impl HlActiveAssetData {
         coin: String,
         leverage: Decimal,
         max_trade_szs: Vec<Decimal>,
-        margin_used: Decimal,
+        available_to_trade: Vec<Decimal>,
+        mark_px: Decimal,
     ) -> Self {
         Self {
             coin,
             leverage,
             max_trade_szs,
-            margin_used,
+            available_to_trade,
+            mark_px,
         }
     }
 }

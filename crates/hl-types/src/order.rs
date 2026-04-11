@@ -256,8 +256,8 @@ impl OrderWire {
         OrderWireBuilder {
             asset,
             is_buy: true,
-            limit_px: limit_px.to_string(),
-            sz: sz.to_string(),
+            limit_px: limit_px.normalize().to_string(),
+            sz: sz.normalize().to_string(),
             reduce_only: false,
             order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
             cloid: None,
@@ -271,8 +271,8 @@ impl OrderWire {
         OrderWireBuilder {
             asset,
             is_buy: false,
-            limit_px: limit_px.to_string(),
-            sz: sz.to_string(),
+            limit_px: limit_px.normalize().to_string(),
+            sz: sz.normalize().to_string(),
             reduce_only: false,
             order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
             cloid: None,
@@ -289,12 +289,12 @@ impl OrderWire {
         sz: Decimal,
         tpsl: Tpsl,
     ) -> OrderWireBuilder {
-        let trigger_px_str = trigger_px.to_string();
+        let trigger_px_str = trigger_px.normalize().to_string();
         OrderWireBuilder {
             asset,
             is_buy: true,
             limit_px: trigger_px_str.clone(),
-            sz: sz.to_string(),
+            sz: sz.normalize().to_string(),
             reduce_only: true,
             order_type: OrderTypeWire::Trigger(TriggerOrderType {
                 trigger_px: trigger_px_str,
@@ -315,12 +315,12 @@ impl OrderWire {
         sz: Decimal,
         tpsl: Tpsl,
     ) -> OrderWireBuilder {
-        let trigger_px_str = trigger_px.to_string();
+        let trigger_px_str = trigger_px.normalize().to_string();
         OrderWireBuilder {
             asset,
             is_buy: false,
             limit_px: trigger_px_str.clone(),
-            sz: sz.to_string(),
+            sz: sz.normalize().to_string(),
             reduce_only: true,
             order_type: OrderTypeWire::Trigger(TriggerOrderType {
                 trigger_px: trigger_px_str,
