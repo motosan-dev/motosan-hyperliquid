@@ -49,6 +49,23 @@ impl Account {
         parse_account_state(&resp)
     }
 
+    /// Fetch clearinghouse states for multiple addresses in a single request.
+    ///
+    /// Sends `clearinghouseStates` with an array of users and parses each
+    /// entry using the same logic as [`state`](Self::state).
+    #[tracing::instrument(skip(self))]
+    pub async fn states(&self, addresses: &[&str]) -> Result<Vec<HlAccountState>, HlError> {
+        let payload = serde_json::json!({
+            "type": "clearinghouseStates",
+            "users": addresses,
+        });
+        let resp = self.client.post_info(payload).await?;
+        let arr = resp
+            .as_array()
+            .ok_or_else(|| HlError::Parse("expected array for clearinghouseStates".into()))?;
+        arr.iter().map(parse_account_state).collect()
+    }
+
     /// Fetch spot token balances for an address.
     #[tracing::instrument(skip(self))]
     pub async fn spot_state(&self, address: &str) -> Result<Vec<HlSpotBalance>, HlError> {
@@ -253,5 +270,117 @@ impl Account {
         let payload = serde_json::json!({ "type": "referral", "user": address });
         let resp = self.client.post_info(payload).await?;
         parse_referral_state(&resp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use hl_types::Signature;
+    use std::sync::Mutex;
+
+    struct MockTransport {
+        responses: Mutex<Vec<serde_json::Value>>,
+    }
+
+    impl MockTransport {
+        fn new(responses: Vec<serde_json::Value>) -> Self {
+            Self {
+                responses: Mutex::new(responses),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for MockTransport {
+        async fn post_info(
+            &self,
+            _request: serde_json::Value,
+        ) -> Result<serde_json::Value, HlError> {
+            let mut queue = self.responses.lock().unwrap();
+            if queue.is_empty() {
+                return Err(HlError::http("no more mock responses"));
+            }
+            Ok(queue.remove(0))
+        }
+
+        async fn post_action(
+            &self,
+            _action: serde_json::Value,
+            _signature: &Signature,
+            _nonce: u64,
+            _vault_address: Option<&str>,
+        ) -> Result<serde_json::Value, HlError> {
+            unimplemented!("mock does not support post_action")
+        }
+
+        fn is_mainnet(&self) -> bool {
+            false
+        }
+    }
+
+    fn mock_clearinghouse_state() -> serde_json::Value {
+        serde_json::json!({
+            "marginSummary": {
+                "accountValue": "10000.0",
+                "totalRawUsd": "5000.0"
+            },
+            "assetPositions": [
+                {
+                    "position": {
+                        "coin": "ETH",
+                        "szi": "1.5",
+                        "entryPx": "2000.0",
+                        "unrealizedPnl": "100.0",
+                        "leverage": { "value": "5.0" },
+                        "liquidationPx": "1600.0"
+                    }
+                }
+            ]
+        })
+    }
+
+    #[tokio::test]
+    async fn states_parses_batch_response() {
+        let mock_resp = serde_json::json!([mock_clearinghouse_state(), mock_clearinghouse_state()]);
+        let transport = Arc::new(MockTransport::new(vec![mock_resp]));
+        let account = Account::new(transport);
+
+        let result = account
+            .states(&["0xabc", "0xdef"])
+            .await
+            .expect("batch states should succeed");
+
+        assert_eq!(result.len(), 2);
+        for state in &result {
+            assert_eq!(state.equity, rust_decimal::Decimal::from(10000));
+            assert_eq!(state.positions.len(), 1);
+            assert_eq!(state.positions[0].coin, "ETH");
+        }
+    }
+
+    #[tokio::test]
+    async fn states_empty_array() {
+        let mock_resp = serde_json::json!([]);
+        let transport = Arc::new(MockTransport::new(vec![mock_resp]));
+        let account = Account::new(transport);
+
+        let result = account
+            .states(&[])
+            .await
+            .expect("empty batch should succeed");
+
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn states_rejects_non_array() {
+        let mock_resp = serde_json::json!({"not": "an array"});
+        let transport = Arc::new(MockTransport::new(vec![mock_resp]));
+        let account = Account::new(transport);
+
+        let result = account.states(&["0xabc"]).await;
+        assert!(result.is_err());
     }
 }
