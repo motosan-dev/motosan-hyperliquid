@@ -168,6 +168,58 @@ impl OrderExecutor {
         Self::check_and_parse_response(result, "spotSend")
     }
 
+    /// Send assets cross-chain with DEX routing.
+    ///
+    /// Unlike `spot_send` (L1-only) and `usdc_transfer` (USDC-only), this action
+    /// routes assets across chains via the Hyperliquid bridge.
+    ///
+    /// Uses EIP-712 user-signed-action signing.
+    #[tracing::instrument(skip(self))]
+    pub async fn send_asset(
+        &self,
+        destination: &str,
+        asset: &str,
+        amount: Decimal,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(destination)?;
+        let chain = self.chain_name();
+        let nonce = self.next_nonce();
+        let action = serde_json::json!({
+            "type": "sendAsset",
+            "hyperliquidChain": chain,
+            "signatureChainId": SIGNATURE_CHAIN_ID,
+            "destination": destination,
+            "asset": asset,
+            "amount": amount.to_string(),
+            "time": nonce,
+        });
+
+        let types = vec![
+            hl_signing::EIP712Field::new("hyperliquidChain", "string"),
+            hl_signing::EIP712Field::new("destination", "string"),
+            hl_signing::EIP712Field::new("asset", "string"),
+            hl_signing::EIP712Field::new("amount", "string"),
+            hl_signing::EIP712Field::new("time", "uint64"),
+        ];
+
+        let signature = hl_signing::sign_user_signed_action(
+            self.signer.as_ref(),
+            &self.address,
+            &action,
+            &types,
+            "HyperliquidTransaction:SendAsset",
+            self.client.is_mainnet(),
+        )?;
+
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault)
+            .await?;
+
+        Self::check_and_parse_response(result, "sendAsset")
+    }
+
     /// Transfer funds between spot and perp accounts.
     ///
     /// When `to_perp` is `true`, funds move from spot to perp.
@@ -281,5 +333,30 @@ mod tests {
         let executor = test_executor(vec![]);
         let result = executor.class_transfer(Decimal::from(-5), true, None).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn send_asset_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .send_asset(
+                "0x0000000000000000000000000000000000000002",
+                "BTC",
+                Decimal::from(1),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn send_asset_rejects_invalid_address() {
+        let executor = test_executor(vec![]);
+        let result = executor
+            .send_asset("not-an-address", "BTC", Decimal::from(1), None)
+            .await;
+        assert!(matches!(result, Err(HlError::InvalidAddress(_))));
     }
 }
