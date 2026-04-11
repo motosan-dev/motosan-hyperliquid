@@ -16,6 +16,7 @@ default = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+hl-test-utils = { path = "../hl-test-utils" }
 
 [dependencies]
 hl-types.workspace = true

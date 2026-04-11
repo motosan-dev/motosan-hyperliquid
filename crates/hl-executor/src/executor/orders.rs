@@ -416,78 +416,7 @@ mod tests {
 
     // ── Mock-based integration tests ───────────────────────────
 
-    use async_trait::async_trait;
-    use hl_client::HttpTransport;
-    use hl_signing::PrivateKeySigner;
-    use hl_types::Signature;
-    use std::sync::{Arc, Mutex};
-
-    /// Mock transport that returns pre-queued responses in FIFO order.
-    struct MockTransport {
-        responses: Mutex<Vec<serde_json::Value>>,
-        is_mainnet: bool,
-    }
-
-    impl MockTransport {
-        fn new(responses: Vec<serde_json::Value>) -> Self {
-            Self {
-                responses: Mutex::new(responses),
-                is_mainnet: true,
-            }
-        }
-    }
-
-    #[async_trait]
-    impl HttpTransport for MockTransport {
-        async fn post_info(&self, _req: serde_json::Value) -> Result<serde_json::Value, HlError> {
-            let mut q = self.responses.lock().unwrap();
-            if q.is_empty() {
-                return Err(HlError::http("no mock responses"));
-            }
-            Ok(q.remove(0))
-        }
-
-        async fn post_action(
-            &self,
-            _action: serde_json::Value,
-            _sig: &Signature,
-            _nonce: u64,
-            _vault: Option<&str>,
-        ) -> Result<serde_json::Value, HlError> {
-            let mut q = self.responses.lock().unwrap();
-            if q.is_empty() {
-                return Err(HlError::http("no mock responses"));
-            }
-            Ok(q.remove(0))
-        }
-
-        fn is_mainnet(&self) -> bool {
-            self.is_mainnet
-        }
-    }
-
-    fn test_signer() -> Box<dyn hl_signing::Signer> {
-        Box::new(
-            PrivateKeySigner::from_hex(
-                "0x0000000000000000000000000000000000000000000000000000000000000001",
-            )
-            .unwrap(),
-        )
-    }
-
-    fn test_executor(responses: Vec<serde_json::Value>) -> OrderExecutor {
-        use crate::meta_cache::AssetMetaCache;
-        let mut name_to_idx = std::collections::HashMap::new();
-        name_to_idx.insert("BTC".to_string(), 0u32);
-        name_to_idx.insert("ETH".to_string(), 1u32);
-        let cache = AssetMetaCache::from_maps(name_to_idx, Default::default());
-        OrderExecutor::with_meta_cache(
-            Arc::new(MockTransport::new(responses)),
-            test_signer(),
-            "0x0000000000000000000000000000000000000001".to_string(),
-            cache,
-        )
-    }
+    use hl_test_utils::test_executor;
 
     /// Canned "ok" response with a single resting order status.
     fn ok_resting_response(oid: u64) -> serde_json::Value {

@@ -1,0 +1,21 @@
+[package]
+name = "hl-test-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Internal test utilities for motosan-hyperliquid"
+publish = false
+
+[dependencies]
+hl-client = { path = "../hl-client" }
+hl-signing = { path = "../hl-signing", features = ["k256-signer"] }
+hl-executor = { path = "../hl-executor" }
+hl-types = { path = "../hl-types" }
+async-trait.workspace = true
+serde_json.workspace = true
