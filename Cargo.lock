@@ -2362,6 +2362,7 @@ dependencies = [
  "chrono",
  "hl-client",
  "hl-signing",
+ "hl-test-utils",
  "hl-types",
  "rust_decimal",
  "serde",
@@ -2397,6 +2398,7 @@ dependencies = [
  "chrono",
  "hl-client",
  "hl-signing",
+ "hl-test-utils",
  "hl-types",
  "rust_decimal",
  "serde",
@@ -2413,6 +2415,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "hl-client",
+ "hl-test-utils",
  "hl-types",
  "rust_decimal",
  "serde",
@@ -2433,6 +2436,18 @@ dependencies = [
  "sha3",
  "tokio",
  "zeroize",
+]
+
+[[package]]
+name = "hl-test-utils"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "hl-client",
+ "hl-executor",
+ "hl-signing",
+ "hl-types",
+ "serde_json",
 ]
 
 [[package]]
@@ -3049,9 +3064,9 @@ dependencies = [
 
 [[package]]
 name = "motosan-wallet-core"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcd7395fb0f748c66c0da72a2613cca0d0b520cf582933102dec0d5c5aab6c5f"
+checksum = "8132db07127a44cfcd10a3ac36e5e972442d81295a112cbf5c9d2f4e78a5f266"
 dependencies = [
  "alloy",
  "eth-keystore",
@@ -4350,6 +4365,7 @@ version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
 dependencies = [
+ "indexmap 2.14.0",
  "itoa",
  "memchr",
  "serde",
