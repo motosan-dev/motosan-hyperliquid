@@ -43,6 +43,8 @@ pub mod orders;
 pub mod response;
 /// Scaled order placement (laddered entries).
 pub mod scale;
+/// Spot token order placement.
+pub mod spot;
 /// Sub-account management.
 pub mod sub_account;
 /// USDC transfers (deposit, withdraw, internal).
@@ -207,6 +209,19 @@ impl OrderExecutor {
             .asset_index_normalized(&coin)
             .ok_or_else(|| {
                 HlError::Validation(format!("Asset '{}' not found in exchange universe", symbol))
+            })
+    }
+
+    /// Normalize a symbol string and look up its spot token index in the meta cache.
+    pub(crate) fn resolve_spot_asset(&self, symbol: &str) -> Result<u32, HlError> {
+        let token = normalize_symbol(symbol);
+        self.meta_cache
+            .spot_asset_index_normalized(&token)
+            .ok_or_else(|| {
+                HlError::Validation(format!(
+                    "Spot token '{}' not found in exchange universe",
+                    symbol
+                ))
             })
     }
 
