@@ -1,9 +1,9 @@
 use rust_decimal::Decimal;
 
 use hl_types::{
-    parse_str_decimal, HlAccountState, HlBorrowLendState, HlError, HlFill, HlFundingEntry,
-    HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlReferralState,
-    HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
+    parse_str_decimal, HlAccountState, HlActiveAssetData, HlBorrowLendState, HlError, HlFill,
+    HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus,
+    HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
 };
 
 /// A small threshold used to detect zero-size (closed) positions.
@@ -477,6 +477,43 @@ pub(crate) fn parse_referral_state(resp: &serde_json::Value) -> Result<HlReferra
         referral_code,
         cum_vlm,
         rewards,
+    ))
+}
+
+/// Parse an `activeAssetData` JSON response into an [`HlActiveAssetData`].
+pub(crate) fn parse_active_asset_data(
+    resp: &serde_json::Value,
+) -> Result<HlActiveAssetData, HlError> {
+    let coin = resp
+        .get("coin")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| HlError::Parse("missing 'coin' in activeAssetData".into()))?
+        .to_string();
+
+    let leverage = if let Some(obj) = resp.get("leverage").and_then(|v| v.as_object()) {
+        obj.get("value")
+            .and_then(|v| v.as_u64())
+            .map(Decimal::from)
+            .unwrap_or(Decimal::ONE)
+    } else {
+        parse_str_decimal(resp.get("leverage"), "leverage")?
+    };
+
+    let max_trade_szs = resp
+        .get("maxTradeSzs")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| HlError::Parse("missing 'maxTradeSzs' in activeAssetData".into()))?
+        .iter()
+        .filter_map(|v| parse_str_decimal(Some(v), "maxTradeSzs").ok())
+        .collect();
+
+    let margin_used = parse_str_decimal(resp.get("marginUsed"), "marginUsed")?;
+
+    Ok(HlActiveAssetData::new(
+        coin,
+        leverage,
+        max_trade_szs,
+        margin_used,
     ))
 }
 

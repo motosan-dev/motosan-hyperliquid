@@ -525,6 +525,38 @@ impl HlReferralState {
     }
 }
 
+/// Active asset data for a user's position in a specific coin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlActiveAssetData {
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// Current leverage for this asset.
+    pub leverage: Decimal,
+    /// Maximum trade sizes (buy/sell).
+    pub max_trade_szs: Vec<Decimal>,
+    /// Margin currently used for this asset.
+    pub margin_used: Decimal,
+}
+
+impl HlActiveAssetData {
+    /// Creates a new `HlActiveAssetData`.
+    pub fn new(
+        coin: String,
+        leverage: Decimal,
+        max_trade_szs: Vec<Decimal>,
+        margin_used: Decimal,
+    ) -> Self {
+        Self {
+            coin,
+            leverage,
+            max_trade_szs,
+            margin_used,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
