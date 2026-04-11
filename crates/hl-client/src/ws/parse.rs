@@ -1,3 +1,4 @@
+use hl_types::HlCandle;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -56,15 +57,45 @@ impl WsMessage {
                 }
                 WsMessage::AllMids(AllMidsData { mids })
             }
-            "l2Book" => WsMessage::L2Book(L2BookData {
-                coin: data
-                    .get("coin")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("")
-                    .into(),
-                levels: data.get("levels").cloned().unwrap_or_default(),
-                time: data.get("time").and_then(|t| t.as_u64()).unwrap_or(0),
-            }),
+            "l2Book" => {
+                let raw_levels = data
+                    .get("levels")
+                    .and_then(|l| l.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let levels: Vec<Vec<PriceLevel>> = raw_levels
+                    .iter()
+                    .map(|side| {
+                        side.as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|entry| {
+                                        let px =
+                                            Decimal::from_str(entry.get("px")?.as_str()?).ok()?;
+                                        let sz =
+                                            Decimal::from_str(entry.get("sz")?.as_str()?).ok()?;
+                                        let n = entry
+                                            .get("n")
+                                            .and_then(|v| v.as_u64())
+                                            .unwrap_or_default()
+                                            as u32;
+                                        Some(PriceLevel { px, sz, n })
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                WsMessage::L2Book(L2BookData {
+                    coin: data
+                        .get("coin")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("")
+                        .into(),
+                    levels,
+                    time: data.get("time").and_then(|t| t.as_u64()).unwrap_or(0),
+                })
+            }
             "trades" => {
                 let raw_trades = data.as_array().cloned().unwrap_or_default();
                 let coin = raw_trades
@@ -98,10 +129,24 @@ impl WsMessage {
                     .collect();
                 WsMessage::Trades(TradesData { coin, trades })
             }
-            "candle" => WsMessage::Candle(CandleData {
-                coin: data.get("s").and_then(|c| c.as_str()).unwrap_or("").into(),
-                candle: data,
-            }),
+            "candle" => {
+                let coin: String = data.get("s").and_then(|c| c.as_str()).unwrap_or("").into();
+                let parse_dec = |key: &str| -> Decimal {
+                    data.get(key)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| Decimal::from_str(s).ok())
+                        .unwrap_or_default()
+                };
+                let candle = HlCandle::new(
+                    data.get("t").and_then(|v| v.as_u64()).unwrap_or_default(),
+                    parse_dec("o"),
+                    parse_dec("h"),
+                    parse_dec("l"),
+                    parse_dec("c"),
+                    parse_dec("v"),
+                );
+                WsMessage::Candle(CandleData { coin, candle })
+            }
             "bbo" => {
                 let coin = data
                     .get("coin")
@@ -128,17 +173,49 @@ impl WsMessage {
                     .as_array()
                     .map(|arr| {
                         arr.iter()
-                            .map(|item| OrderUpdateData {
-                                order: item.get("order").cloned().unwrap_or_default(),
-                                status: item
-                                    .get("status")
-                                    .and_then(|s| s.as_str())
-                                    .unwrap_or("")
-                                    .into(),
-                                timestamp: item
-                                    .get("statusTimestamp")
-                                    .and_then(|t| t.as_u64())
-                                    .unwrap_or(0),
+                            .map(|item| {
+                                let o = item
+                                    .get("order")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                                let parse_order_dec = |key: &str| -> Decimal {
+                                    o.get(key)
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|s| Decimal::from_str(s).ok())
+                                        .unwrap_or_default()
+                                };
+                                let order = WsOrderUpdate {
+                                    oid: o.get("oid").and_then(|v| v.as_u64()).unwrap_or_default(),
+                                    coin: o
+                                        .get("coin")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    side: o
+                                        .get("side")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    limit_px: parse_order_dec("limitPx"),
+                                    sz: parse_order_dec("sz"),
+                                    orig_sz: parse_order_dec("origSz"),
+                                    cloid: o
+                                        .get("cloid")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                };
+                                OrderUpdateData {
+                                    order,
+                                    status: item
+                                        .get("status")
+                                        .and_then(|s| s.as_str())
+                                        .unwrap_or("")
+                                        .into(),
+                                    timestamp: item
+                                        .get("statusTimestamp")
+                                        .and_then(|t| t.as_u64())
+                                        .unwrap_or(0),
+                                }
                             })
                             .collect()
                     })
@@ -241,7 +318,10 @@ mod tests {
             "channel": "l2Book",
             "data": {
                 "coin": "BTC",
-                "levels": [[{"px":"90000","sz":"1.0"}],[{"px":"90001","sz":"0.5"}]],
+                "levels": [
+                    [{"px":"90000","sz":"1.0","n":3}],
+                    [{"px":"90001","sz":"0.5","n":1}]
+                ],
                 "time": 1_700_000_000_000u64
             }
         });
@@ -250,6 +330,71 @@ mod tests {
             WsMessage::L2Book(d) => {
                 assert_eq!(d.coin, "BTC");
                 assert_eq!(d.time, 1_700_000_000_000);
+                assert_eq!(d.levels.len(), 2);
+                // bids
+                assert_eq!(d.levels[0].len(), 1);
+                assert_eq!(d.levels[0][0].px, Decimal::from_str("90000").unwrap());
+                assert_eq!(d.levels[0][0].sz, Decimal::from_str("1.0").unwrap());
+                assert_eq!(d.levels[0][0].n, 3);
+                // asks
+                assert_eq!(d.levels[1].len(), 1);
+                assert_eq!(d.levels[1][0].px, Decimal::from_str("90001").unwrap());
+                assert_eq!(d.levels[1][0].sz, Decimal::from_str("0.5").unwrap());
+                assert_eq!(d.levels[1][0].n, 1);
+            }
+            other => panic!("expected L2Book, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_l2_book_missing_n_defaults_to_zero() {
+        let raw = serde_json::json!({
+            "channel": "l2Book",
+            "data": {
+                "coin": "ETH",
+                "levels": [[{"px":"3000","sz":"2.5"}]],
+                "time": 100
+            }
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::L2Book(d) => {
+                assert_eq!(d.levels[0][0].n, 0);
+                assert_eq!(d.levels[0][0].px, Decimal::from_str("3000").unwrap());
+            }
+            other => panic!("expected L2Book, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_l2_book_empty_levels() {
+        let raw = serde_json::json!({
+            "channel": "l2Book",
+            "data": {"coin": "SOL", "levels": [], "time": 0}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::L2Book(d) => {
+                assert!(d.levels.is_empty());
+            }
+            other => panic!("expected L2Book, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_l2_book_skips_malformed_entries() {
+        let raw = serde_json::json!({
+            "channel": "l2Book",
+            "data": {
+                "coin": "BTC",
+                "levels": [[{"px":"90000","sz":"1.0","n":2},{"bad":"field"}]],
+                "time": 0
+            }
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::L2Book(d) => {
+                assert_eq!(d.levels[0].len(), 1);
             }
             other => panic!("expected L2Book, got: {other:?}"),
         }
@@ -275,13 +420,77 @@ mod tests {
     fn parse_order_updates_message() {
         let raw = serde_json::json!({
             "channel": "orderUpdates",
-            "data": [{"order": {"oid": 123}, "status": "filled", "statusTimestamp": 1_700_000_000_000u64}]
+            "data": [{
+                "order": {
+                    "oid": 123,
+                    "coin": "BTC",
+                    "side": "B",
+                    "limitPx": "90000.0",
+                    "sz": "1.5",
+                    "origSz": "2.0",
+                    "cloid": "my-order-1"
+                },
+                "status": "filled",
+                "statusTimestamp": 1_700_000_000_000u64
+            }]
         });
         let msg = WsMessage::parse(raw);
         match msg {
             WsMessage::OrderUpdates(u) => {
                 assert_eq!(u.len(), 1);
                 assert_eq!(u[0].status, "filled");
+                assert_eq!(u[0].order.oid, 123);
+                assert_eq!(u[0].order.coin, "BTC");
+                assert_eq!(u[0].order.side, "B");
+                assert_eq!(u[0].order.limit_px, Decimal::from_str("90000.0").unwrap());
+                assert_eq!(u[0].order.sz, Decimal::from_str("1.5").unwrap());
+                assert_eq!(u[0].order.orig_sz, Decimal::from_str("2.0").unwrap());
+                assert_eq!(u[0].order.cloid, Some("my-order-1".to_string()));
+            }
+            other => panic!("expected OrderUpdates, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_order_updates_missing_cloid() {
+        let raw = serde_json::json!({
+            "channel": "orderUpdates",
+            "data": [{
+                "order": {
+                    "oid": 456,
+                    "coin": "ETH",
+                    "side": "A",
+                    "limitPx": "3000",
+                    "sz": "0.5",
+                    "origSz": "0.5"
+                },
+                "status": "open",
+                "statusTimestamp": 100
+            }]
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::OrderUpdates(u) => {
+                assert_eq!(u[0].order.oid, 456);
+                assert_eq!(u[0].order.cloid, None);
+            }
+            other => panic!("expected OrderUpdates, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_order_updates_missing_order_fields_default() {
+        let raw = serde_json::json!({
+            "channel": "orderUpdates",
+            "data": [{"order": {}, "status": "canceled", "statusTimestamp": 0}]
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::OrderUpdates(u) => {
+                assert_eq!(u[0].order.oid, 0);
+                assert_eq!(u[0].order.coin, "");
+                assert_eq!(u[0].order.limit_px, Decimal::default());
+                assert_eq!(u[0].status, "canceled");
             }
             other => panic!("expected OrderUpdates, got: {other:?}"),
         }
@@ -467,6 +676,53 @@ mod tests {
                 assert_eq!(data.time, 0);
             }
             other => panic!("expected Bbo, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_candle_message() {
+        let raw = serde_json::json!({
+            "channel": "candle",
+            "data": {
+                "s": "BTC",
+                "t": 1_700_000_000_000u64,
+                "o": "90000.0",
+                "h": "91000.0",
+                "l": "89000.0",
+                "c": "90500.0",
+                "v": "1234.56"
+            }
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::Candle(d) => {
+                assert_eq!(d.coin, "BTC");
+                assert_eq!(d.candle.timestamp, 1_700_000_000_000);
+                assert_eq!(d.candle.open, Decimal::from_str("90000.0").unwrap());
+                assert_eq!(d.candle.high, Decimal::from_str("91000.0").unwrap());
+                assert_eq!(d.candle.low, Decimal::from_str("89000.0").unwrap());
+                assert_eq!(d.candle.close, Decimal::from_str("90500.0").unwrap());
+                assert_eq!(d.candle.volume, Decimal::from_str("1234.56").unwrap());
+            }
+            other => panic!("expected Candle, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_candle_missing_fields_defaults() {
+        let raw = serde_json::json!({
+            "channel": "candle",
+            "data": {"s": "ETH"}
+        });
+        let msg = WsMessage::parse(raw);
+        match msg {
+            WsMessage::Candle(d) => {
+                assert_eq!(d.coin, "ETH");
+                assert_eq!(d.candle.timestamp, 0);
+                assert_eq!(d.candle.open, Decimal::default());
+                assert_eq!(d.candle.volume, Decimal::default());
+            }
+            other => panic!("expected Candle, got: {other:?}"),
         }
     }
 
