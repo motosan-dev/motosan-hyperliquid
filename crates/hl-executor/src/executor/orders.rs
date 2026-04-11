@@ -375,7 +375,7 @@ impl OrderExecutor {
 ///
 /// Queries `l2Book` for the given coin and delegates parsing to
 /// [`hl_types::parse_mid_price_from_l2book`].
-async fn extract_mid_price(
+pub(crate) async fn extract_mid_price(
     client: &std::sync::Arc<dyn hl_client::HttpTransport>,
     coin: &str,
 ) -> Result<Decimal, HlError> {
