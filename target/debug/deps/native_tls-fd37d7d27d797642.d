@@ -1,6 +1,0 @@
-/private/tmp/motosan-hyperliquid-issue-119/target/debug/deps/native_tls-fd37d7d27d797642.d: /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/lib.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/imp/security_framework.rs
-
-/private/tmp/motosan-hyperliquid-issue-119/target/debug/deps/libnative_tls-fd37d7d27d797642.rmeta: /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/lib.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/imp/security_framework.rs
-
-/Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/lib.rs:
-/Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/native-tls-0.2.18/src/imp/security_framework.rs:
