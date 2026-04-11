@@ -1,20 +1,20 @@
 mod parse;
 
 pub(crate) use parse::{
-    parse_account_state, parse_borrow_lend_state, parse_fills, parse_funding_history,
-    parse_historical_orders, parse_open_orders, parse_order_status, parse_rate_limit_status,
-    parse_referral_state, parse_spot_state, parse_staking_delegations, parse_user_fees,
-    parse_user_funding,
+    parse_account_state, parse_active_asset_data, parse_borrow_lend_state, parse_fills,
+    parse_funding_history, parse_historical_orders, parse_open_orders, parse_order_status,
+    parse_rate_limit_status, parse_referral_state, parse_spot_state, parse_staking_delegations,
+    parse_user_fees, parse_user_funding,
 };
 
 use std::sync::Arc;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    HlAccountState, HlBorrowLendState, HlError, HlExtraAgent, HlFill, HlFundingEntry,
-    HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlReferralState,
-    HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry, HlVaultDetails,
-    HlVaultSummary,
+    HlAccountState, HlActiveAssetData, HlBorrowLendState, HlError, HlExtraAgent, HlFill,
+    HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus,
+    HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
+    HlVaultDetails, HlVaultSummary,
 };
 
 /// Typed interface for Hyperliquid account state queries.
@@ -270,6 +270,22 @@ impl Account {
         let payload = serde_json::json!({ "type": "referral", "user": address });
         let resp = self.client.post_info(payload).await?;
         parse_referral_state(&resp)
+    }
+
+    /// Fetch active asset data for a user's position in a specific coin.
+    #[tracing::instrument(skip(self))]
+    pub async fn active_asset_data(
+        &self,
+        user: &str,
+        coin: &str,
+    ) -> Result<HlActiveAssetData, HlError> {
+        let payload = serde_json::json!({
+            "type": "activeAssetData",
+            "user": user,
+            "coin": coin,
+        });
+        let resp = self.client.post_info(payload).await?;
+        parse_active_asset_data(&resp)
     }
 }
 
