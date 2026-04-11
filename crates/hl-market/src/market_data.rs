@@ -5,8 +5,9 @@ use rust_decimal::Decimal;
 
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
-    normalize_coin, parse_str_decimal, HlAssetInfo, HlCandle, HlError, HlFundingRate, HlOrderbook,
-    HlPerpDexStatus, HlSpotAssetInfo, HlSpotMeta, HlTrade, TradeSide,
+    normalize_coin, parse_str_decimal, AssetContext, HlAssetInfo, HlCandle, HlError, HlFundingRate,
+    HlOrderbook, HlPerpDexStatus, HlSpotAssetInfo, HlSpotMeta, HlTrade, SpotAssetContext,
+    TradeSide,
 };
 
 /// Typed interface for Hyperliquid market data queries.
@@ -139,6 +140,34 @@ impl MarketData {
         let payload = serde_json::json!({ "type": "perpsAtOpenInterestCap" });
         let resp = self.client.post_info(payload).await?;
         parse_perps_at_oi_cap(&resp)
+    }
+
+    /// Fetch perpetual asset metadata and real-time asset contexts in a single call.
+    ///
+    /// Sends `{"type": "metaAndAssetCtxs"}` and returns both the static asset
+    /// info list and the corresponding asset context (funding, OI, mark price).
+    #[tracing::instrument(skip(self))]
+    pub async fn meta_and_asset_contexts(
+        &self,
+    ) -> Result<(Vec<HlAssetInfo>, Vec<AssetContext>), HlError> {
+        let payload = serde_json::json!({ "type": "metaAndAssetCtxs" });
+        let resp = self.client.post_info(payload).await?;
+        let infos = parse_asset_info(&resp)?;
+        let ctxs = parse_asset_contexts(&resp)?;
+        Ok((infos, ctxs))
+    }
+
+    /// Fetch spot metadata and real-time spot asset contexts in a single call.
+    ///
+    /// Sends `{"type": "spotMetaAndAssetCtxs"}` and returns the spot meta
+    /// (token list) and corresponding spot asset contexts (mark/mid prices).
+    #[tracing::instrument(skip(self))]
+    pub async fn spot_meta_and_asset_contexts(
+        &self,
+    ) -> Result<(HlSpotMeta, Vec<SpotAssetContext>), HlError> {
+        let payload = serde_json::json!({ "type": "spotMetaAndAssetCtxs" });
+        let resp = self.client.post_info(payload).await?;
+        parse_spot_meta_and_asset_contexts(&resp)
     }
 }
 
@@ -455,6 +484,72 @@ pub(crate) fn parse_perps_at_oi_cap(response: &serde_json::Value) -> Result<Vec<
     }
 
     Ok(coins)
+}
+
+/// Parse the asset contexts array from a `metaAndAssetCtxs` response.
+///
+/// The response is a two-element array `[metaObj, [assetCtx, ...]]`.
+/// Each asset context contains `{ "funding": "...", "openInterest": "...", "markPx": "..." }`.
+pub(crate) fn parse_asset_contexts(
+    response: &serde_json::Value,
+) -> Result<Vec<AssetContext>, HlError> {
+    let arr = response
+        .as_array()
+        .ok_or_else(|| parse_err("metaAndAssetCtxs response is not an array"))?;
+
+    if arr.len() < 2 {
+        return Err(parse_err(
+            "metaAndAssetCtxs array has fewer than 2 elements",
+        ));
+    }
+
+    let asset_ctxs = arr[1]
+        .as_array()
+        .ok_or_else(|| parse_err("metaAndAssetCtxs[1] is not an array"))?;
+
+    let mut result = Vec::with_capacity(asset_ctxs.len());
+    for ctx in asset_ctxs {
+        let funding = parse_str_decimal(ctx.get("funding"), "funding")?;
+        let open_interest = parse_str_decimal(ctx.get("openInterest"), "openInterest")?;
+        let mark_px = parse_str_decimal(ctx.get("markPx"), "markPx")?;
+        result.push(AssetContext::new(funding, open_interest, mark_px));
+    }
+
+    Ok(result)
+}
+
+/// Parse a `spotMetaAndAssetCtxs` response into `(HlSpotMeta, Vec<SpotAssetContext>)`.
+///
+/// The response is a two-element array `[spotMetaObj, [spotCtx, ...]]`.
+/// The first element has a `tokens` array (same as `spotMeta`).
+/// Each spot context contains `{ "markPx": "...", "midPx": "..." }`.
+pub(crate) fn parse_spot_meta_and_asset_contexts(
+    response: &serde_json::Value,
+) -> Result<(HlSpotMeta, Vec<SpotAssetContext>), HlError> {
+    let arr = response
+        .as_array()
+        .ok_or_else(|| parse_err("spotMetaAndAssetCtxs response is not an array"))?;
+
+    if arr.len() < 2 {
+        return Err(parse_err(
+            "spotMetaAndAssetCtxs array has fewer than 2 elements",
+        ));
+    }
+
+    let meta = parse_spot_meta(&arr[0])?;
+
+    let spot_ctxs = arr[1]
+        .as_array()
+        .ok_or_else(|| parse_err("spotMetaAndAssetCtxs[1] is not an array"))?;
+
+    let mut contexts = Vec::with_capacity(spot_ctxs.len());
+    for ctx in spot_ctxs {
+        let mark_px = parse_str_decimal(ctx.get("markPx"), "markPx")?;
+        let mid_px = parse_str_decimal(ctx.get("midPx"), "midPx")?;
+        contexts.push(SpotAssetContext::new(mark_px, mid_px));
+    }
+
+    Ok((meta, contexts))
 }
 
 /// Parse a `recentTrades` response into a `Vec<HlTrade>`.
@@ -1270,5 +1365,156 @@ mod tests {
 
         let coins = market.perps_at_oi_cap().await.unwrap();
         assert_eq!(coins, vec!["BTC", "ETH"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // meta_and_asset_contexts / spot_meta_and_asset_contexts parser tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_asset_contexts_valid() {
+        let json = serde_json::json!([
+            {
+                "universe": [
+                    {"name": "BTC", "szDecimals": 5},
+                    {"name": "ETH", "szDecimals": 4}
+                ]
+            },
+            [
+                {"funding": "0.0001", "openInterest": "50000.0", "markPx": "94000.00", "nextFundingTime": 1709989200000_u64},
+                {"funding": "-0.00005", "openInterest": "120000.0", "markPx": "3500.0000", "nextFundingTime": 1709989200000_u64}
+            ]
+        ]);
+
+        let ctxs = parse_asset_contexts(&json).unwrap();
+        assert_eq!(ctxs.len(), 2);
+        assert_eq!(ctxs[0].funding, Decimal::from_str("0.0001").unwrap());
+        assert_eq!(ctxs[0].open_interest, Decimal::from_str("50000.0").unwrap());
+        assert_eq!(ctxs[0].mark_px, Decimal::from_str("94000.00").unwrap());
+        assert_eq!(ctxs[1].funding, Decimal::from_str("-0.00005").unwrap());
+        assert_eq!(
+            ctxs[1].open_interest,
+            Decimal::from_str("120000.0").unwrap()
+        );
+        assert_eq!(ctxs[1].mark_px, Decimal::from_str("3500.0000").unwrap());
+    }
+
+    #[test]
+    fn test_parse_asset_contexts_empty() {
+        let json = serde_json::json!([{"universe": []}, []]);
+        let ctxs = parse_asset_contexts(&json).unwrap();
+        assert!(ctxs.is_empty());
+    }
+
+    #[test]
+    fn test_parse_asset_contexts_not_array() {
+        let json = serde_json::json!({"error": "bad"});
+        assert!(parse_asset_contexts(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_asset_contexts_too_few_elements() {
+        let json = serde_json::json!([{"universe": []}]);
+        assert!(parse_asset_contexts(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_spot_meta_and_asset_contexts_valid() {
+        let json = serde_json::json!([
+            {
+                "tokens": [
+                    {"name": "PURR", "index": 1, "szDecimals": 0, "weiDecimals": 18},
+                    {"name": "USDC", "index": 2, "szDecimals": 2, "weiDecimals": 6}
+                ],
+                "universe": []
+            },
+            [
+                {"markPx": "1.05", "midPx": "1.04"},
+                {"markPx": "1.0001", "midPx": "1.0000"}
+            ]
+        ]);
+
+        let (meta, ctxs) = parse_spot_meta_and_asset_contexts(&json).unwrap();
+        assert_eq!(meta.tokens.len(), 2);
+        assert_eq!(meta.tokens[0].name, "PURR");
+        assert_eq!(meta.tokens[1].name, "USDC");
+        assert_eq!(ctxs.len(), 2);
+        assert_eq!(ctxs[0].mark_px, Decimal::from_str("1.05").unwrap());
+        assert_eq!(ctxs[0].mid_px, Decimal::from_str("1.04").unwrap());
+        assert_eq!(ctxs[1].mark_px, Decimal::from_str("1.0001").unwrap());
+        assert_eq!(ctxs[1].mid_px, Decimal::from_str("1.0000").unwrap());
+    }
+
+    #[test]
+    fn test_parse_spot_meta_and_asset_contexts_empty() {
+        let json = serde_json::json!([{"tokens": [], "universe": []}, []]);
+        let (meta, ctxs) = parse_spot_meta_and_asset_contexts(&json).unwrap();
+        assert!(meta.tokens.is_empty());
+        assert!(ctxs.is_empty());
+    }
+
+    #[test]
+    fn test_parse_spot_meta_and_asset_contexts_not_array() {
+        let json = serde_json::json!({"error": "bad"});
+        assert!(parse_spot_meta_and_asset_contexts(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_spot_meta_and_asset_contexts_too_few_elements() {
+        let json = serde_json::json!([{"tokens": []}]);
+        assert!(parse_spot_meta_and_asset_contexts(&json).is_err());
+    }
+
+    #[tokio::test]
+    async fn mock_transport_meta_and_asset_contexts() {
+        let response = serde_json::json!([
+            {
+                "universe": [
+                    {"name": "BTC", "szDecimals": 5, "maxLeverage": 50},
+                    {"name": "ETH", "szDecimals": 4, "maxLeverage": 25}
+                ]
+            },
+            [
+                {"funding": "0.0001", "openInterest": "50000.0", "markPx": "94000.00", "nextFundingTime": 1709989200000_u64},
+                {"funding": "-0.00005", "openInterest": "120000.0", "markPx": "3500.0000", "nextFundingTime": 1709989200000_u64}
+            ]
+        ]);
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let (infos, ctxs) = market.meta_and_asset_contexts().await.unwrap();
+        assert_eq!(infos.len(), 2);
+        assert_eq!(infos[0].coin, "BTC");
+        assert_eq!(infos[1].coin, "ETH");
+        assert_eq!(ctxs.len(), 2);
+        assert_eq!(ctxs[0].funding, Decimal::from_str("0.0001").unwrap());
+        assert_eq!(ctxs[0].open_interest, Decimal::from_str("50000.0").unwrap());
+        assert_eq!(ctxs[0].mark_px, Decimal::from_str("94000.00").unwrap());
+    }
+
+    #[tokio::test]
+    async fn mock_transport_spot_meta_and_asset_contexts() {
+        let response = serde_json::json!([
+            {
+                "tokens": [
+                    {"name": "PURR", "index": 1, "szDecimals": 0, "weiDecimals": 18}
+                ],
+                "universe": []
+            },
+            [
+                {"markPx": "1.05", "midPx": "1.04"}
+            ]
+        ]);
+
+        let transport = Arc::new(MockTransport::new(vec![response]));
+        let market = MarketData::new(transport);
+
+        let (meta, ctxs) = market.spot_meta_and_asset_contexts().await.unwrap();
+        assert_eq!(meta.tokens.len(), 1);
+        assert_eq!(meta.tokens[0].name, "PURR");
+        assert_eq!(ctxs.len(), 1);
+        assert_eq!(ctxs[0].mark_px, Decimal::from_str("1.05").unwrap());
+        assert_eq!(ctxs[0].mid_px, Decimal::from_str("1.04").unwrap());
     }
 }
