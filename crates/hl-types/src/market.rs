@@ -134,6 +134,48 @@ impl HlSpotMeta {
     }
 }
 
+/// Real-time context for a perpetual asset (from `metaAndAssetCtxs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct AssetContext {
+    /// Current funding rate.
+    pub funding: Decimal,
+    /// Total open interest.
+    pub open_interest: Decimal,
+    /// Mark price.
+    pub mark_px: Decimal,
+}
+
+impl AssetContext {
+    /// Creates a new `AssetContext`.
+    pub fn new(funding: Decimal, open_interest: Decimal, mark_px: Decimal) -> Self {
+        Self {
+            funding,
+            open_interest,
+            mark_px,
+        }
+    }
+}
+
+/// Real-time context for a spot asset (from `spotMetaAndAssetCtxs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct SpotAssetContext {
+    /// Mark price.
+    pub mark_px: Decimal,
+    /// Mid price.
+    pub mid_px: Decimal,
+}
+
+impl SpotAssetContext {
+    /// Creates a new `SpotAssetContext`.
+    pub fn new(mark_px: Decimal, mid_px: Decimal) -> Self {
+        Self { mark_px, mid_px }
+    }
+}
+
 /// Side of a trade.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TradeSide {
@@ -415,6 +457,62 @@ mod tests {
         let parsed: HlSpotBalance = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.coin, "PURR");
         assert_eq!(parsed.total, Decimal::from_str("500.0").unwrap());
+    }
+
+    #[test]
+    fn asset_context_serde_roundtrip() {
+        let ctx = AssetContext {
+            funding: Decimal::from_str("0.0001").unwrap(),
+            open_interest: Decimal::from_str("50000.0").unwrap(),
+            mark_px: Decimal::from_str("94000.0").unwrap(),
+        };
+        let json = serde_json::to_string(&ctx).unwrap();
+        let parsed: AssetContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ctx);
+    }
+
+    #[test]
+    fn asset_context_camel_case_keys() {
+        let ctx = AssetContext::new(Decimal::ZERO, Decimal::ZERO, Decimal::ZERO);
+        let json = serde_json::to_string(&ctx).unwrap();
+        assert!(json.contains("openInterest"));
+        assert!(json.contains("markPx"));
+    }
+
+    #[test]
+    fn asset_context_camel_case_deserialize() {
+        let json = r#"{"funding":"0.0001","openInterest":"50000.0","markPx":"94000.0"}"#;
+        let parsed: AssetContext = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.funding, Decimal::from_str("0.0001").unwrap());
+        assert_eq!(parsed.open_interest, Decimal::from_str("50000.0").unwrap());
+        assert_eq!(parsed.mark_px, Decimal::from_str("94000.0").unwrap());
+    }
+
+    #[test]
+    fn spot_asset_context_serde_roundtrip() {
+        let ctx = SpotAssetContext {
+            mark_px: Decimal::from_str("1.05").unwrap(),
+            mid_px: Decimal::from_str("1.04").unwrap(),
+        };
+        let json = serde_json::to_string(&ctx).unwrap();
+        let parsed: SpotAssetContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ctx);
+    }
+
+    #[test]
+    fn spot_asset_context_camel_case_keys() {
+        let ctx = SpotAssetContext::new(Decimal::ZERO, Decimal::ZERO);
+        let json = serde_json::to_string(&ctx).unwrap();
+        assert!(json.contains("markPx"));
+        assert!(json.contains("midPx"));
+    }
+
+    #[test]
+    fn spot_asset_context_camel_case_deserialize() {
+        let json = r#"{"markPx":"1.05","midPx":"1.04"}"#;
+        let parsed: SpotAssetContext = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.mark_px, Decimal::from_str("1.05").unwrap());
+        assert_eq!(parsed.mid_px, Decimal::from_str("1.04").unwrap());
     }
 
     #[test]
