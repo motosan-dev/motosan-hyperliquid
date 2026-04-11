@@ -158,3 +158,78 @@ impl OrderExecutor {
             .map_err(|e| HlError::Parse(format!("cancel_spot_order response: {e}")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::meta_cache::AssetMetaCache;
+    use std::sync::Arc;
+
+    fn ok_resting_response(oid: u64) -> serde_json::Value {
+        serde_json::json!({
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [{"resting": {"oid": oid}}]
+                }
+            }
+        })
+    }
+
+    fn test_executor_with_spot(responses: Vec<serde_json::Value>) -> OrderExecutor {
+        let mut perp_idx = std::collections::HashMap::new();
+        perp_idx.insert("BTC".to_string(), 0u32);
+        let mut spot_idx = std::collections::HashMap::new();
+        spot_idx.insert("PURR".to_string(), 10000u32);
+        spot_idx.insert("USDC".to_string(), 10001u32);
+        let cache = AssetMetaCache::from_maps_with_spot(
+            perp_idx,
+            Default::default(),
+            spot_idx,
+            Default::default(),
+        );
+        OrderExecutor::with_meta_cache(
+            Arc::new(hl_test_utils::MockTransport::new(responses)),
+            hl_test_utils::test_signer(),
+            "0x0000000000000000000000000000000000000001".to_string(),
+            cache,
+        )
+    }
+
+    #[tokio::test]
+    async fn place_spot_order_success() {
+        let executor = test_executor_with_spot(vec![ok_resting_response(9999)]);
+        let order = OrderWire::limit_buy(10000, Decimal::from(1), Decimal::from(100))
+            .build()
+            .unwrap();
+        let result = executor.place_spot_order(order, None).await;
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp.order_id, "9999");
+    }
+
+    #[tokio::test]
+    async fn bulk_spot_order_empty() {
+        let executor = test_executor_with_spot(vec![]);
+        let result = executor.bulk_spot_order(vec![], None).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_spot_asset_unknown_fails() {
+        let executor = test_executor_with_spot(vec![]);
+        let result = executor.resolve_spot_asset("UNKNOWN_TOKEN");
+        assert!(matches!(result, Err(HlError::Validation(_))));
+    }
+
+    #[tokio::test]
+    async fn cancel_spot_order_success() {
+        let executor = test_executor_with_spot(vec![
+            serde_json::json!({"status": "ok", "response": {"type": "cancel"}}),
+        ]);
+        let result = executor.cancel_spot_order(10000, 9999, None).await;
+        assert!(result.is_ok());
+    }
+}
