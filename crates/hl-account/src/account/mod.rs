@@ -292,49 +292,7 @@ impl Account {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-    use hl_types::Signature;
-    use std::sync::Mutex;
-
-    struct MockTransport {
-        responses: Mutex<Vec<serde_json::Value>>,
-    }
-
-    impl MockTransport {
-        fn new(responses: Vec<serde_json::Value>) -> Self {
-            Self {
-                responses: Mutex::new(responses),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl HttpTransport for MockTransport {
-        async fn post_info(
-            &self,
-            _request: serde_json::Value,
-        ) -> Result<serde_json::Value, HlError> {
-            let mut queue = self.responses.lock().unwrap();
-            if queue.is_empty() {
-                return Err(HlError::http("no more mock responses"));
-            }
-            Ok(queue.remove(0))
-        }
-
-        async fn post_action(
-            &self,
-            _action: serde_json::Value,
-            _signature: &Signature,
-            _nonce: u64,
-            _vault_address: Option<&str>,
-        ) -> Result<serde_json::Value, HlError> {
-            unimplemented!("mock does not support post_action")
-        }
-
-        fn is_mainnet(&self) -> bool {
-            false
-        }
-    }
+    use hl_test_utils::MockTransport;
 
     fn mock_clearinghouse_state() -> serde_json::Value {
         serde_json::json!({
