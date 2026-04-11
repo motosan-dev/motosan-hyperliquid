@@ -493,6 +493,70 @@ impl HlHistoricalOrder {
     }
 }
 
+/// Referral state for a Hyperliquid account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlReferralState {
+    /// The address of the referrer, if any.
+    pub referrer: Option<String>,
+    /// The user's own referral code, if any.
+    pub referral_code: Option<String>,
+    /// Cumulative volume traded.
+    pub cum_vlm: Decimal,
+    /// Referral rewards earned.
+    pub rewards: Decimal,
+}
+
+impl HlReferralState {
+    /// Creates a new `HlReferralState`.
+    pub fn new(
+        referrer: Option<String>,
+        referral_code: Option<String>,
+        cum_vlm: Decimal,
+        rewards: Decimal,
+    ) -> Self {
+        Self {
+            referrer,
+            referral_code,
+            cum_vlm,
+            rewards,
+        }
+    }
+}
+
+/// Active asset data for a user's position in a specific coin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlActiveAssetData {
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// Current leverage for this asset.
+    pub leverage: Decimal,
+    /// Maximum trade sizes (buy/sell).
+    pub max_trade_szs: Vec<Decimal>,
+    /// Margin currently used for this asset.
+    pub margin_used: Decimal,
+}
+
+impl HlActiveAssetData {
+    /// Creates a new `HlActiveAssetData`.
+    pub fn new(
+        coin: String,
+        leverage: Decimal,
+        max_trade_szs: Vec<Decimal>,
+        margin_used: Decimal,
+    ) -> Self {
+        Self {
+            coin,
+            leverage,
+            max_trade_szs,
+            margin_used,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1132,5 +1196,29 @@ mod tests {
         let json = serde_json::to_string(&order).unwrap();
         assert!(json.contains("limitPx"));
         assert!(json.contains("orderType"));
+    }
+
+    #[test]
+    fn referral_state_serde_roundtrip() {
+        let state = HlReferralState::new(
+            Some("0xabc".into()),
+            Some("CODE123".into()),
+            Decimal::from_str("50000.0").unwrap(),
+            Decimal::from_str("100.5").unwrap(),
+        );
+        let json = serde_json::to_string(&state).unwrap();
+        let parsed: HlReferralState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.referrer.as_deref(), Some("0xabc"));
+        assert_eq!(parsed.referral_code.as_deref(), Some("CODE123"));
+        assert_eq!(parsed.cum_vlm, Decimal::from_str("50000.0").unwrap());
+        assert_eq!(parsed.rewards, Decimal::from_str("100.5").unwrap());
+    }
+
+    #[test]
+    fn referral_state_camel_case_keys() {
+        let state = HlReferralState::new(None, None, Decimal::ZERO, Decimal::ZERO);
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("cumVlm"));
+        assert!(json.contains("referralCode"));
     }
 }
