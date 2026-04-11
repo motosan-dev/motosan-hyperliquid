@@ -2,8 +2,8 @@ use rust_decimal::Decimal;
 
 use hl_types::{
     parse_str_decimal, HlAccountState, HlBorrowLendState, HlError, HlFill, HlFundingEntry,
-    HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlSpotBalance,
-    HlStakingDelegation, HlUserFees, HlUserFundingEntry,
+    HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlReferralState,
+    HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
 };
 
 /// A small threshold used to detect zero-size (closed) positions.
@@ -450,6 +450,34 @@ pub(crate) fn parse_rate_limit_status(
         .unwrap_or(60_000); // default 60s window if not provided
 
     Ok(HlRateLimitStatus::new(used, limit, window_ms))
+}
+
+/// Parse a `referral` JSON response into an [`HlReferralState`].
+///
+/// The response contains optional referrer/referral-code fields plus
+/// cumulative volume and rewards as string-encoded decimals.
+pub(crate) fn parse_referral_state(resp: &serde_json::Value) -> Result<HlReferralState, HlError> {
+    let referrer = resp
+        .get("referrer")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+
+    let referral_code = resp
+        .get("referralCode")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+
+    let cum_vlm = parse_str_decimal(resp.get("cumVlm"), "cumVlm")?;
+    let rewards = parse_str_decimal(resp.get("rewards"), "rewards")?;
+
+    Ok(HlReferralState::new(
+        referrer,
+        referral_code,
+        cum_vlm,
+        rewards,
+    ))
 }
 
 #[cfg(test)]
@@ -1246,5 +1274,64 @@ mod tests {
         }]);
         let orders = parse_historical_orders(&resp).unwrap();
         assert_eq!(orders[0].order_type, "Limit");
+    }
+
+    // --- referral_state parser tests ---
+
+    #[test]
+    fn parse_referral_state_full() {
+        let resp = serde_json::json!({
+            "referrer": "0xabc123",
+            "referralCode": "MYCODE",
+            "cumVlm": "1000000.50",
+            "rewards": "250.75"
+        });
+        let state = parse_referral_state(&resp).unwrap();
+        assert_eq!(state.referrer.as_deref(), Some("0xabc123"));
+        assert_eq!(state.referral_code.as_deref(), Some("MYCODE"));
+        assert_eq!(state.cum_vlm, Decimal::from_str("1000000.50").unwrap());
+        assert_eq!(state.rewards, Decimal::from_str("250.75").unwrap());
+    }
+
+    #[test]
+    fn parse_referral_state_no_referrer() {
+        let resp = serde_json::json!({
+            "cumVlm": "0.0",
+            "rewards": "0.0"
+        });
+        let state = parse_referral_state(&resp).unwrap();
+        assert!(state.referrer.is_none());
+        assert!(state.referral_code.is_none());
+        assert_eq!(state.cum_vlm, Decimal::ZERO);
+        assert_eq!(state.rewards, Decimal::ZERO);
+    }
+
+    #[test]
+    fn parse_referral_state_empty_strings() {
+        let resp = serde_json::json!({
+            "referrer": "",
+            "referralCode": "",
+            "cumVlm": "500.0",
+            "rewards": "10.0"
+        });
+        let state = parse_referral_state(&resp).unwrap();
+        assert!(state.referrer.is_none());
+        assert!(state.referral_code.is_none());
+    }
+
+    #[test]
+    fn parse_referral_state_missing_cum_vlm() {
+        let resp = serde_json::json!({
+            "rewards": "10.0"
+        });
+        assert!(parse_referral_state(&resp).is_err());
+    }
+
+    #[test]
+    fn parse_referral_state_missing_rewards() {
+        let resp = serde_json::json!({
+            "cumVlm": "100.0"
+        });
+        assert!(parse_referral_state(&resp).is_err());
     }
 }

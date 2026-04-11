@@ -22,8 +22,8 @@ pub mod util;
 
 pub use account::{
     HlAccountState, HlBorrowLendState, HlExtraAgent, HlFill, HlFundingEntry, HlHistoricalOrder,
-    HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlStakingDelegation, HlUserFees,
-    HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
+    HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlReferralState,
+    HlStakingDelegation, HlUserFees, HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
 };
 pub use candle::HlCandle;
 pub use error::HlError;
