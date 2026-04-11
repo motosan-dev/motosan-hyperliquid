@@ -407,7 +407,8 @@ pub(crate) fn parse_user_funding(
 
 /// Parse a `historicalOrders` JSON response into a [`Vec<HlHistoricalOrder>`].
 ///
-/// Each entry has the same fields as open orders, plus a `status` field.
+/// The API returns `[{"order": {oid, coin, ...}, "status": "...", "statusTimestamp": ...}, ...]`.
+/// Each entry wraps the order fields inside an `"order"` key.
 pub(crate) fn parse_historical_orders(
     resp: &serde_json::Value,
 ) -> Result<Vec<HlHistoricalOrder>, HlError> {
@@ -417,8 +418,11 @@ pub(crate) fn parse_historical_orders(
 
     let mut orders = Vec::with_capacity(arr.len());
     for item in arr {
+        // The API wraps order fields inside an "order" key; fall back to item itself
+        // for backward compatibility with flat format.
+        let order_val = item.get("order").unwrap_or(item);
         let (oid, coin, side, limit_px, sz, timestamp, order_type, cloid) =
-            parse_order_fields(item, "historicalOrder")?;
+            parse_order_fields(order_val, "historicalOrder")?;
         let status = item
             .get("status")
             .and_then(|v| v.as_str())

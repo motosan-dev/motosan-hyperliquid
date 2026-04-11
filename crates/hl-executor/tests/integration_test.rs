@@ -2,13 +2,6 @@
 //!
 //! These tests require `HYPERLIQUID_TESTNET_KEY` to be set and are run via:
 //! `cargo test --all-features -- --ignored`
-//!
-//! Unlike live_test.rs which covers basic construction, bulk order/cancel,
-//! cancel-by-cloid, modify, leverage, and schedule-cancel, these tests cover:
-//! - Single place + query + cancel lifecycle
-//! - Leverage toggle between cross and isolated margin
-//! - Concurrent order placement and cancellation
-//! - Order status query after placement
 
 use hl_client::HyperliquidClient;
 use hl_executor::{AssetMetaCache, OrderExecutor};
@@ -32,8 +25,7 @@ async fn setup() -> OrderExecutor {
         .expect("executor construction failed")
 }
 
-/// Place a single limit buy far below market, verify it is open, then cancel it
-/// by asset + oid and verify the cancel succeeds.
+/// Place a single limit buy 25% below market, verify it is open, then cancel.
 #[tokio::test]
 #[ignore]
 async fn place_single_order_query_and_cancel() {
@@ -44,10 +36,11 @@ async fn place_single_order_query_and_cancel() {
         .asset_index("BTC")
         .expect("BTC asset index not found");
 
-    // Place a limit buy at $1 — will never fill
+    // Use a price 25% below a reasonable reference (~$80k range)
+    // This stays within the 80% distance limit
     let order = hl_types::OrderWire::limit_buy(
         btc_idx,
-        Decimal::from(1),
+        Decimal::from(60000),
         Decimal::from_str("0.001").unwrap(),
     )
     .build()
@@ -74,20 +67,17 @@ async fn place_single_order_query_and_cancel() {
 }
 
 /// Toggle leverage between cross and isolated margin modes.
-/// Sets 3x isolated, then restores to 5x cross.
 #[tokio::test]
 #[ignore]
 async fn leverage_cross_to_isolated_toggle() {
     let executor = setup().await;
 
-    // Set ETH to 3x isolated (is_cross = false)
     let resp = executor
         .update_leverage("ETH", 3, false, None)
         .await
         .expect("update_leverage to 3x isolated failed");
     assert_eq!(resp.status, "ok");
 
-    // Set ETH back to 5x cross (is_cross = true)
     let resp = executor
         .update_leverage("ETH", 5, true, None)
         .await
@@ -95,8 +85,8 @@ async fn leverage_cross_to_isolated_toggle() {
     assert_eq!(resp.status, "ok");
 }
 
-/// Place multiple independent orders on different assets, then cancel them all.
-/// Verifies that orders on separate assets can coexist.
+/// Place orders on BTC and ETH sequentially, then cancel both.
+/// Uses a single executor so nonces don't collide.
 #[tokio::test]
 #[ignore]
 async fn place_orders_on_multiple_assets_then_cancel() {
@@ -111,19 +101,18 @@ async fn place_orders_on_multiple_assets_then_cancel() {
         .asset_index("ETH")
         .expect("ETH asset index not found");
 
-    // Place BTC buy at $1
+    // Prices within 80% of market
     let btc_order = hl_types::OrderWire::limit_buy(
         btc_idx,
-        Decimal::from(1),
+        Decimal::from(60000),
         Decimal::from_str("0.001").unwrap(),
     )
     .build()
     .unwrap();
 
-    // Place ETH buy at $1
     let eth_order = hl_types::OrderWire::limit_buy(
         eth_idx,
-        Decimal::from(1),
+        Decimal::from(2000),
         Decimal::from_str("0.01").unwrap(),
     )
     .build()
@@ -160,8 +149,7 @@ async fn place_orders_on_multiple_assets_then_cancel() {
     );
 }
 
-/// Verify that the meta cache contains expected assets and their sz_decimals
-/// are consistent with asset_index lookups.
+/// Verify that the meta cache contains expected assets.
 #[tokio::test]
 #[ignore]
 async fn meta_cache_asset_consistency() {
@@ -171,23 +159,15 @@ async fn meta_cache_asset_consistency() {
         .await
         .expect("meta cache load failed");
 
-    // BTC and ETH should always exist on testnet
     for coin in &["BTC", "ETH"] {
         let idx = cache.asset_index(coin);
         assert!(idx.is_some(), "{coin} should have an asset index");
         let sz = cache.sz_decimals(coin);
         assert!(sz.is_some(), "{coin} should have sz_decimals");
-        // sz_decimals should be a reasonable value (0-8 for most assets)
         let sz_val = sz.unwrap();
         assert!(sz_val <= 8, "{coin} sz_decimals {sz_val} seems too large");
     }
 
-    // Verify a non-existent coin returns None
-    assert!(
-        cache.asset_index("DOESNOTEXIST_XYZ").is_none(),
-        "non-existent coin should return None"
-    );
-
-    // Suppress unused variable warning
+    assert!(cache.asset_index("DOESNOTEXIST_XYZ").is_none());
     let _ = key;
 }

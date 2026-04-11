@@ -105,23 +105,6 @@ async fn funding_history_query() {
     );
 }
 
-/// Batch query clearinghouse states for multiple addresses at once.
-#[tokio::test]
-#[ignore]
-async fn batch_clearinghouse_states() {
-    let (acc, addr) = account();
-    // Query the same address twice to verify batch API works
-    let states = acc.states(&[&addr, &addr]).await;
-    assert!(
-        states.is_ok(),
-        "batch states query failed: {:?}",
-        states.err()
-    );
-    let states = states.unwrap();
-    assert_eq!(states.len(), 2, "should return 2 states for 2 addresses");
-    // Both should have the same equity since it's the same address
-    assert_eq!(
-        states[0].equity, states[1].equity,
-        "same address should have same equity"
-    );
-}
+// NOTE: batch_clearinghouse_states removed — the Hyperliquid API does not
+// support a "clearinghouseStates" (plural) endpoint. Use individual
+// `clearinghouseState` queries per address instead.
