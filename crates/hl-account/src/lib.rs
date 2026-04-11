@@ -4,9 +4,9 @@
 //! agent approvals. All queries are read-only and require only a public
 //! Ethereum address.
 
-// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
+/// Account state query methods (positions, fills, orders, vaults, fees).
 pub mod account;
 
 pub use account::Account;

@@ -9,7 +9,9 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
+    /// Buy side.
     Buy,
+    /// Sell side.
     Sell,
 }
 
@@ -87,7 +89,9 @@ impl fmt::Display for Tpsl {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PositionSide {
+    /// Long position.
     Long,
+    /// Short position.
     Short,
 }
 
@@ -414,6 +418,7 @@ impl<'de> Deserialize<'de> for OrderTypeWire {
 /// Limit order type wire format.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LimitOrderType {
+    /// Time-in-force for the limit order.
     pub tif: Tif,
 }
 
@@ -421,8 +426,11 @@ pub struct LimitOrderType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TriggerOrderType {
+    /// Trigger price as a decimal string.
     pub trigger_px: String,
+    /// Whether the triggered order executes as a market order.
     pub is_market: bool,
+    /// Trigger direction (stop-loss or take-profit).
     pub tpsl: Tpsl,
 }
 
@@ -430,11 +438,14 @@ pub struct TriggerOrderType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CancelRequest {
+    /// Asset index.
     pub asset: u32,
+    /// Server-assigned order ID to cancel.
     pub oid: u64,
 }
 
 impl CancelRequest {
+    /// Creates a new `CancelRequest`.
     pub fn new(asset: u32, oid: u64) -> Self {
         Self { asset, oid }
     }
@@ -444,11 +455,14 @@ impl CancelRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CancelByCloidRequest {
+    /// Asset index.
     pub asset: u32,
+    /// Client order ID to cancel.
     pub cloid: String,
 }
 
 impl CancelByCloidRequest {
+    /// Creates a new `CancelByCloidRequest`.
     pub fn new(asset: u32, cloid: impl Into<String>) -> Self {
         Self {
             asset,
@@ -461,11 +475,14 @@ impl CancelByCloidRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ModifyRequest {
+    /// Server-assigned order ID to modify.
     pub oid: u64,
+    /// Replacement order wire data.
     pub order: OrderWire,
 }
 
 impl ModifyRequest {
+    /// Creates a new `ModifyRequest`.
     pub fn new(oid: u64, order: OrderWire) -> Self {
         Self { oid, order }
     }

@@ -31,8 +31,7 @@
 //! [`hl_client::HyperliquidClient`] / [`hl_client::HttpTransport`] are
 //! available.
 
-// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
 pub mod prelude;
 

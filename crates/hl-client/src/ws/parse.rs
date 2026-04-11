@@ -8,23 +8,41 @@ use super::types::*;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum WsMessage {
+    /// All mid-price updates.
     AllMids(AllMidsData),
+    /// L2 orderbook snapshot.
     L2Book(L2BookData),
+    /// Recent trades.
     Trades(TradesData),
+    /// Candle (OHLCV) update.
     Candle(CandleData),
+    /// Best bid/offer update.
     Bbo(BboData),
+    /// Order status change events.
     OrderUpdates(Vec<OrderUpdateData>),
+    /// Aggregate user events.
     UserEvents(UserEventsData),
+    /// User fill events.
     UserFills(UserFillsData),
+    /// User funding payment events.
     UserFundings(UserFundingsData),
+    /// Aggregate user data (web data v3).
     WebData3(WebData3Data),
+    /// Clearinghouse state update.
     ClearinghouseState(ClearinghouseStateData),
+    /// Active asset context (funding, OI, mark price).
     ActiveAssetCtx(ActiveAssetCtxData),
+    /// Active asset data (leverage and sizing).
     ActiveAssetData(ActiveAssetDataMsg),
+    /// TWAP order execution history.
     UserTwapHistory(UserTwapHistoryData),
+    /// TWAP slice fill events.
     UserTwapSliceFills(UserTwapSliceFillsData),
+    /// Subscription confirmation from the server.
     SubscriptionResponse,
+    /// Pong response to a ping.
     Pong,
+    /// Unrecognized message (forward-compatible).
     Unknown(serde_json::Value),
 }
 

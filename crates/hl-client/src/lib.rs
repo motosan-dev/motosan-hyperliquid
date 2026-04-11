@@ -6,15 +6,19 @@
 //! exponential backoff, and rate-limit awareness. Enable the `ws` feature
 //! for [`HyperliquidWs`] WebSocket support with auto-reconnect.
 
-// TODO: upgrade to #![warn(missing_docs)] once public API is fully documented
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
+/// HTTP client builder and main [`HyperliquidClient`] implementation.
 pub mod client;
+/// Rate-limit tracking and configuration.
 pub mod rate_limit;
+/// Retry and timeout configuration for HTTP requests.
 pub mod retry;
+/// HTTP transport abstraction.
 pub mod transport;
 
 #[cfg(feature = "ws")]
+/// WebSocket client with auto-reconnect and typed message parsing.
 pub mod ws;
 
 pub use client::{ClientBuilder, HyperliquidClient};

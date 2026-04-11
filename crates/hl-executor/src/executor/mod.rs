@@ -10,15 +10,25 @@ use hl_types::{normalize_coin, HlActionResponse, HlError};
 
 use crate::meta_cache::AssetMetaCache;
 
+/// Agent approval and admin actions.
 pub mod admin;
+/// Order cancellation (by OID and by CLOID).
 pub mod cancel;
+/// Leverage configuration.
 pub mod leverage;
+/// Order modification (atomic amend).
 pub mod modify;
+/// Order placement (limit, market, trigger).
 pub mod orders;
+/// Response parsing for exchange actions.
 pub mod response;
+/// Scaled order placement (laddered entries).
 pub mod scale;
+/// Sub-account management.
 pub mod sub_account;
+/// USDC transfers (deposit, withdraw, internal).
 pub mod transfer;
+/// TWAP (time-weighted average price) order management.
 pub mod twap;
 
 /// Normalize a market symbol to its base coin name.
