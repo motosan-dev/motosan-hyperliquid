@@ -1,0 +1,9 @@
+/private/tmp/motosan-hyperliquid-issue-123/target/debug/deps/coins_bip39-c58d4676ecbf3b8a.d: /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/lib.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/mnemonic.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/mod.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/english.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/./words/english.txt
+
+/private/tmp/motosan-hyperliquid-issue-123/target/debug/deps/libcoins_bip39-c58d4676ecbf3b8a.rmeta: /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/lib.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/mnemonic.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/mod.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/english.rs /Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/./words/english.txt
+
+/Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/lib.rs:
+/Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/mnemonic.rs:
+/Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/mod.rs:
+/Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/english.rs:
+/Users/galois/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/coins-bip39-0.12.0/src/wordlist/./words/english.txt:
