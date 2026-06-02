@@ -164,6 +164,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-type-parser",
  "alloy-sol-types",
+ "derive_more",
  "itoa",
  "serde",
  "serde_json",
@@ -3049,6 +3050,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "motosan-evm-envelope"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc961c6f7d45d1061dc010018f4ad542b3bc4de587682e3fec6ecb8862a2698c"
+dependencies = [
+ "alloy",
+ "alloy-dyn-abi",
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "motosan-hyperliquid"
 version = "0.1.0"
 dependencies = [
@@ -3064,14 +3079,15 @@ dependencies = [
 
 [[package]]
 name = "motosan-wallet-core"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8132db07127a44cfcd10a3ac36e5e972442d81295a112cbf5c9d2f4e78a5f266"
+checksum = "47b5b14f377c63e8af8768f24419db435354c22e66d57692c41a0fe3a7c8f491"
 dependencies = [
  "alloy",
  "eth-keystore",
  "futures",
  "hex",
+ "motosan-evm-envelope",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "rmp-serde",

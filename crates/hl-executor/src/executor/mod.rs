@@ -11,7 +11,7 @@ use hl_types::{normalize_coin, HlActionResponse, HlError};
 use crate::meta_cache::AssetMetaCache;
 
 /// EIP-712 signature chain ID used by Hyperliquid (Arbitrum One, chain ID 42161).
-pub(crate) const SIGNATURE_CHAIN_ID: &str = "0xa4b1";
+pub(crate) const SIGNATURE_CHAIN_ID: &str = "0x66eee";
 
 /// Validate that `addr` looks like a valid Ethereum address (`0x` + 40 hex chars).
 ///
