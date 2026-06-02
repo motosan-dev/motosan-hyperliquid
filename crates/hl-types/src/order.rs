@@ -248,8 +248,8 @@ impl OrderWire {
         OrderWireBuilder {
             asset,
             is_buy: true,
-            limit_px: limit_px.to_string(),
-            sz: sz.to_string(),
+            limit_px: crate::normalize_wire(limit_px),
+            sz: crate::normalize_wire(sz),
             reduce_only: false,
             order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
             cloid: None,
@@ -263,8 +263,8 @@ impl OrderWire {
         OrderWireBuilder {
             asset,
             is_buy: false,
-            limit_px: limit_px.to_string(),
-            sz: sz.to_string(),
+            limit_px: crate::normalize_wire(limit_px),
+            sz: crate::normalize_wire(sz),
             reduce_only: false,
             order_type: OrderTypeWire::Limit(LimitOrderType { tif: Tif::Gtc }),
             cloid: None,
@@ -281,12 +281,12 @@ impl OrderWire {
         sz: Decimal,
         tpsl: Tpsl,
     ) -> OrderWireBuilder {
-        let trigger_px_str = trigger_px.to_string();
+        let trigger_px_str = crate::normalize_wire(trigger_px);
         OrderWireBuilder {
             asset,
             is_buy: true,
             limit_px: trigger_px_str.clone(),
-            sz: sz.to_string(),
+            sz: crate::normalize_wire(sz),
             reduce_only: true,
             order_type: OrderTypeWire::Trigger(TriggerOrderType {
                 trigger_px: trigger_px_str,
@@ -307,12 +307,12 @@ impl OrderWire {
         sz: Decimal,
         tpsl: Tpsl,
     ) -> OrderWireBuilder {
-        let trigger_px_str = trigger_px.to_string();
+        let trigger_px_str = crate::normalize_wire(trigger_px);
         OrderWireBuilder {
             asset,
             is_buy: false,
             limit_px: trigger_px_str.clone(),
-            sz: sz.to_string(),
+            sz: crate::normalize_wire(sz),
             reduce_only: true,
             order_type: OrderTypeWire::Trigger(TriggerOrderType {
                 trigger_px: trigger_px_str,
@@ -543,6 +543,19 @@ mod tests {
     }
 
     // ── OrderWire builder ───────────────────────────────────────
+
+    #[test]
+    fn builder_uses_canonical_wire_strings() {
+        let order = OrderWire::limit_buy(
+            0,
+            Decimal::from_str("94500.000").unwrap(),
+            Decimal::from_str("0.0010").unwrap(),
+        )
+        .build()
+        .unwrap();
+        assert_eq!(order.limit_px, "94500");
+        assert_eq!(order.sz, "0.001");
+    }
 
     #[test]
     fn builder_limit_buy_defaults() {
