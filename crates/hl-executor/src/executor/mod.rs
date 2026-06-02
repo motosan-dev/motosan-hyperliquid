@@ -41,6 +41,25 @@ pub(crate) const FILL_THRESHOLD: Decimal = Decimal::from_parts(99, 0, 0, false, 
 /// matches the recovered signer. (Matches the Python SDK.)
 pub(crate) const USER_SIGNED_SIGNATURE_CHAIN_ID: &str = "0x66eee";
 
+/// Compute the next strictly-increasing nonce from `counter`, clamped up to the
+/// current time in ms. Guarantees a strictly larger value than the previous one
+/// even if the system clock stalls or jumps backward. Free function so the
+/// concurrency logic is unit-testable without a full [`OrderExecutor`].
+fn next_nonce_from(counter: &AtomicU64) -> u64 {
+    loop {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before UNIX epoch")
+            .as_millis() as u64;
+        let prev = counter.load(Ordering::Acquire);
+        let next = std::cmp::max(now_ms, prev + 1);
+        match counter.compare_exchange_weak(prev, next, Ordering::Release, Ordering::Acquire) {
+            Ok(_) => return next,
+            Err(_) => continue,
+        }
+    }
+}
+
 /// Standalone order executor for the Hyperliquid L1.
 ///
 /// Provides methods to place, cancel, and manage orders without any
@@ -115,21 +134,7 @@ impl OrderExecutor {
     /// Generate a monotonically increasing nonce based on the current time in
     /// milliseconds since the UNIX epoch.
     pub(crate) fn next_nonce(&self) -> u64 {
-        loop {
-            let now_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before UNIX epoch")
-                .as_millis() as u64;
-            let prev = self.nonce.load(Ordering::Acquire);
-            let next = std::cmp::max(now_ms, prev + 1);
-            match self
-                .nonce
-                .compare_exchange_weak(prev, next, Ordering::Release, Ordering::Acquire)
-            {
-                Ok(_) => return next,
-                Err(_) => continue,
-            }
-        }
+        next_nonce_from(&self.nonce)
     }
 
     /// Sign and post an action to the exchange, returning the raw JSON response.
@@ -209,5 +214,31 @@ mod tests {
             parsed, 421614,
             "posted signatureChainId must reconstruct to the user-signed domain chainId 421614"
         );
+    }
+
+    #[test]
+    fn next_nonce_is_strictly_increasing() {
+        use std::sync::atomic::AtomicU64;
+        let counter = AtomicU64::new(0);
+        let mut prev = 0u64;
+        for _ in 0..1000 {
+            let n = next_nonce_from(&counter);
+            assert!(n > prev, "nonce must strictly increase: {n} <= {prev}");
+            prev = n;
+        }
+    }
+
+    #[test]
+    fn next_nonce_stays_ahead_of_a_lagging_clock() {
+        use std::sync::atomic::AtomicU64;
+        // Counter already far ahead of wall-clock ms (e.g. the clock jumped back).
+        let counter = AtomicU64::new(10_000_000_000_000);
+        let a = next_nonce_from(&counter);
+        let b = next_nonce_from(&counter);
+        assert!(
+            a >= 10_000_000_000_000,
+            "must not regress below the counter"
+        );
+        assert!(b > a, "must keep increasing when prev+1 dominates now_ms");
     }
 }

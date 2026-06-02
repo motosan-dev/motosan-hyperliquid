@@ -7,9 +7,13 @@ use hl_types::*;
 use super::response::{parse_bulk_order_response_with_fallbacks, parse_order_response};
 use super::{OrderExecutor, FILL_THRESHOLD};
 
-/// Round a perp price to Hyperliquid's rule: at most 5 significant figures
+/// Round a **perp** price to Hyperliquid's rule: at most 5 significant figures
 /// AND at most `6 - sz_decimals` decimal places. Integer prices are returned
 /// unchanged — Hyperliquid allows them regardless of significant figures.
+///
+/// The `6` is the perp `MAX_DECIMALS`; spot uses `8 - sz_decimals`. This is safe
+/// today because the meta cache only loads the perp universe — parameterize the
+/// `6` if/when spot support is added.
 pub(crate) fn round_price_perp(px: Decimal, sz_decimals: u32) -> Decimal {
     let max_dp = 6u32.saturating_sub(sz_decimals);
     let sf = if px.fract() == Decimal::ZERO {
@@ -65,33 +69,22 @@ pub(crate) fn resolve_close(
 }
 
 /// Build wire-format JSON from an [`OrderWire`].
+///
+/// The `t` (order-type) sub-object is produced by [`OrderTypeWire`]'s own
+/// `Serialize` impl, so the limit/trigger wire shape is defined in exactly one
+/// place (and no `#[non_exhaustive]` wildcard arm is needed here).
 pub(crate) fn order_to_json(order: &OrderWire) -> Result<serde_json::Value, HlError> {
+    let order_type = serde_json::to_value(&order.order_type)
+        .map_err(|e| HlError::serialization(format!("order type: {e}")))?;
+
     let mut order_json = serde_json::json!({
         "a": order.asset,
         "b": order.is_buy,
         "p": order.limit_px,
         "s": order.sz,
         "r": order.reduce_only,
-        "t": {},
+        "t": order_type,
     });
-
-    match &order.order_type {
-        OrderTypeWire::Limit(limit) => {
-            order_json["t"] = serde_json::json!({ "limit": { "tif": limit.tif.to_string() } });
-        }
-        OrderTypeWire::Trigger(trigger) => {
-            order_json["t"] = serde_json::json!({
-                "trigger": {
-                    "triggerPx": trigger.trigger_px,
-                    "isMarket": trigger.is_market,
-                    "tpsl": trigger.tpsl.to_string(),
-                }
-            });
-        }
-        _ => {
-            return Err(HlError::serialization("unknown OrderTypeWire variant"));
-        }
-    }
 
     if let Some(ref cloid) = order.cloid {
         order_json["c"] = serde_json::json!(cloid);
@@ -668,6 +661,30 @@ mod tests {
         assert_eq!(j["t"]["trigger"]["isMarket"].as_bool(), Some(true));
         assert_eq!(j["t"]["trigger"]["tpsl"].as_str(), Some("sl"));
         assert!(j.get("c").is_none(), "no cloid set -> no c key");
+    }
+
+    #[test]
+    fn determine_status_boundaries() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let req = Decimal::from(100);
+        // Full fill and exactly the 0.99 (FILL_THRESHOLD) ratio are Filled.
+        assert_eq!(determine_status(req, req, "x"), OrderStatus::Filled);
+        assert_eq!(
+            determine_status(Decimal::from(99), req, "x"),
+            OrderStatus::Filled
+        );
+        // Just below the threshold but non-zero is Partial.
+        assert_eq!(
+            determine_status(Decimal::from_str("98.99").unwrap(), req, "x"),
+            OrderStatus::Partial
+        );
+        assert_eq!(
+            determine_status(Decimal::from_str("0.001").unwrap(), req, "x"),
+            OrderStatus::Partial
+        );
+        // Zero fill is Open.
+        assert_eq!(determine_status(Decimal::ZERO, req, "x"), OrderStatus::Open);
     }
 
     #[test]
