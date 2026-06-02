@@ -1,0 +1,8 @@
+# Rust build artifacts
+/target
+
+# macOS
+.DS_Store
+
+# CodeGraph local index
+/.codegraph
