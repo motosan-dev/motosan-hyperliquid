@@ -20,6 +20,19 @@ pub(crate) fn round_size(sz: Decimal, sz_decimals: u32) -> Decimal {
     sz.round_dp_with_strategy(sz_decimals, RoundingStrategy::ToZero)
 }
 
+/// Generate a Hyperliquid client order id (`0x` + 32 hex chars) for
+/// idempotent submission — the exchange dedups retries by cloid.
+pub(crate) fn new_cloid() -> String {
+    format!("0x{}", uuid::Uuid::new_v4().as_simple())
+}
+
+/// Attach a generated cloid if the order has none (idempotent).
+pub(crate) fn ensure_cloid(order: &mut OrderWire) {
+    if order.cloid.is_none() {
+        order.cloid = Some(new_cloid());
+    }
+}
+
 /// Build wire-format JSON from an [`OrderWire`].
 pub(crate) fn order_to_json(order: &OrderWire) -> Result<serde_json::Value, HlError> {
     let mut order_json = serde_json::json!({
@@ -86,9 +99,11 @@ impl OrderExecutor {
     #[tracing::instrument(skip(self, order), fields(asset = order.asset, is_buy = order.is_buy))]
     pub async fn place_order(
         &self,
-        order: OrderWire,
+        mut order: OrderWire,
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
+        ensure_cloid(&mut order);
+
         let fallback_price: Decimal =
             Decimal::from_str(&order.limit_px).unwrap_or(Decimal::ZERO);
         let fallback_size: Decimal = Decimal::from_str(&order.sz).unwrap_or(Decimal::ZERO);
@@ -139,7 +154,7 @@ impl OrderExecutor {
         let asset_idx = self.resolve_asset(symbol)?;
 
         let is_buy = side.is_buy();
-        let cloid = uuid::Uuid::new_v4().to_string();
+        let cloid = new_cloid();
 
         let action = serde_json::json!({
             "type": "order",
@@ -209,11 +224,15 @@ impl OrderExecutor {
     #[tracing::instrument(skip(self, orders), fields(count = orders.len()))]
     pub async fn bulk_order(
         &self,
-        orders: Vec<OrderWire>,
+        mut orders: Vec<OrderWire>,
         vault: Option<&str>,
     ) -> Result<Vec<OrderResponse>, HlError> {
         if orders.is_empty() {
             return Ok(vec![]);
+        }
+
+        for order in &mut orders {
+            ensure_cloid(order);
         }
 
         let mut order_jsons = Vec::with_capacity(orders.len());
@@ -501,6 +520,37 @@ fn extract_position_szi(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_cloid_is_hyperliquid_format() {
+        let c = new_cloid();
+        assert!(c.starts_with("0x"), "cloid must be 0x-prefixed: {c}");
+        assert_eq!(c.len(), 34, "cloid must be 0x + 32 hex chars: {c}");
+        assert!(c[2..].chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn ensure_cloid_injects_then_is_idempotent() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let mut order = OrderWire::limit_buy(
+            0,
+            Decimal::from_str("100").unwrap(),
+            Decimal::from_str("1").unwrap(),
+        )
+        .build()
+        .unwrap();
+        assert!(order.cloid.is_none());
+        ensure_cloid(&mut order);
+        let first = order.cloid.clone().unwrap();
+        assert!(first.starts_with("0x") && first.len() == 34);
+        ensure_cloid(&mut order);
+        assert_eq!(
+            order.cloid.as_deref(),
+            Some(first.as_str()),
+            "must not overwrite"
+        );
+    }
 
     #[test]
     fn round_price_perp_caps_5_sig_figs() {
