@@ -30,4 +30,4 @@ pub use order::{
 pub use response::{HlActionResponse, OrderResponse};
 pub use rust_decimal::Decimal;
 pub use signature::Signature;
-pub use util::normalize_coin;
+pub use util::{normalize_coin, normalize_wire};
