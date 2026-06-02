@@ -16,3 +16,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Comprehensive unit tests (118 tests across all crates)
 - Live integration tests for testnet API (feature-gated)
 - README and usage examples
+
+### Fixed
+- **Signing (R1):** L1 action signatures are now valid — `motosan-wallet-core` 0.5.2 serializes the
+  msgpack action in canonical (insertion) field order via `serde_json` `preserve_order`. The previous
+  alphabetical key ordering produced an invalid `connectionId` that Hyperliquid rejected.
+- **Signing (R2):** user-signed actions (`usdSend`, `approveAgent`, etc.) now sign with the canonical
+  EIP-712 domain — chainId `421614` (`0x66eee`) for both mainnet and testnet — via
+  `motosan-wallet-core` 0.5.2.
+- **Wire format (R3):** SDK-computed order prices/sizes (market and trigger orders) are normalized to
+  Hyperliquid wire rules — canonical float string (`normalize_wire`), ≤5 significant figures for
+  price, and `szDecimals` rounding for size.
+- **Idempotency (R4):** order writes auto-attach a client order id (`cloid`) so retried POSTs are
+  deduplicated by the exchange; `place_trigger_order` now uses the canonical `0x`+32-hex cloid format.
+- **Safety (R5):** `market_close` takes `size` as an unsigned magnitude and always derives the close
+  side from the live position, removing the sign-encoded-direction footgun.
+
+### Added
+- Self-contained signing golden-vector tests (`hl-signing/tests/golden_vectors.rs`): a canonical-order
+  L1 action-hash oracle and an L1 signature regression baseline.
