@@ -18,7 +18,7 @@ impl OrderExecutor {
         let mut action = serde_json::json!({
             "type": "approveAgent",
             "hyperliquidChain": chain,
-            "signatureChainId": "0xa4b1",
+            "signatureChainId": super::USER_SIGNED_SIGNATURE_CHAIN_ID,
             "agentAddress": agent_address,
             "nonce": nonce,
         });

@@ -38,7 +38,7 @@ impl OrderExecutor {
         let action = serde_json::json!({
             "type": "usdSend",
             "hyperliquidChain": chain,
-            "signatureChainId": "0xa4b1",
+            "signatureChainId": super::USER_SIGNED_SIGNATURE_CHAIN_ID,
             "destination": destination,
             "amount": amount.to_string(),
             "time": nonce,

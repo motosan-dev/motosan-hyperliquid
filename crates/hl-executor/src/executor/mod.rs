@@ -32,6 +32,15 @@ pub(crate) fn normalize_symbol(symbol: &str) -> String {
 /// fully filled.
 pub(crate) const FILL_THRESHOLD: Decimal = Decimal::from_parts(99, 0, 0, false, 2); // 0.99
 
+/// The `signatureChainId` posted in user-signed action wire bodies (`usdSend`,
+/// `approveAgent`, etc.).
+///
+/// Must be the `0x`-hex form of the EIP-712 domain chainId (`421614`) that
+/// `motosan-wallet-core` signs user-signed actions with, for BOTH mainnet and
+/// testnet, so the exchange's domain reconstruction (`int(signatureChainId, 16)`)
+/// matches the recovered signer. (Matches the Python SDK.)
+pub(crate) const USER_SIGNED_SIGNATURE_CHAIN_ID: &str = "0x66eee";
+
 /// Standalone order executor for the Hyperliquid L1.
 ///
 /// Provides methods to place, cancel, and manage orders without any
@@ -180,5 +189,22 @@ impl OrderExecutor {
     /// Borrow the asset meta cache.
     pub fn meta_cache(&self) -> &AssetMetaCache {
         &self.meta_cache
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_signed_signature_chain_id_reconstructs_to_canonical_domain() {
+        // The exchange rebuilds the EIP-712 domain chainId as int(signatureChainId, 16);
+        // it must equal 421614, the chainId motosan-wallet-core signs user-signed actions with.
+        let parsed =
+            u64::from_str_radix(USER_SIGNED_SIGNATURE_CHAIN_ID.trim_start_matches("0x"), 16).unwrap();
+        assert_eq!(
+            parsed, 421614,
+            "posted signatureChainId must reconstruct to the user-signed domain chainId 421614"
+        );
     }
 }
