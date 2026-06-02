@@ -90,7 +90,10 @@ pub fn test_executor(responses: Vec<serde_json::Value>) -> OrderExecutor {
     let mut name_to_idx = HashMap::new();
     name_to_idx.insert("BTC".to_string(), 0u32);
     name_to_idx.insert("ETH".to_string(), 1u32);
-    let cache = AssetMetaCache::from_maps(name_to_idx, Default::default());
+    let mut name_to_sz = HashMap::new();
+    name_to_sz.insert("BTC".to_string(), 5u32);
+    name_to_sz.insert("ETH".to_string(), 4u32);
+    let cache = AssetMetaCache::from_maps(name_to_idx, name_to_sz);
     OrderExecutor::with_meta_cache(
         Arc::new(MockTransport::new(responses)),
         test_signer(),
