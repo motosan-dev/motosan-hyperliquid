@@ -26,3 +26,8 @@ serde_json.workspace = true
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+sha3 = "0.10"
+hex = "0.4"
+k256 = { version = "0.13", features = ["ecdsa"] }
