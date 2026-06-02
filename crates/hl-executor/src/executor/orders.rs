@@ -1,11 +1,24 @@
 use std::str::FromStr;
 
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy};
 
 use hl_types::*;
 
-use super::response::{parse_order_response, parse_bulk_order_response_with_fallbacks};
+use super::response::{parse_bulk_order_response_with_fallbacks, parse_order_response};
 use super::{OrderExecutor, FILL_THRESHOLD};
+
+/// Round a perp price to Hyperliquid's rule: at most 5 significant figures
+/// AND at most `6 - sz_decimals` decimal places.
+pub(crate) fn round_price_perp(px: Decimal, sz_decimals: u32) -> Decimal {
+    let max_dp = 6u32.saturating_sub(sz_decimals);
+    let sf = px.round_sf(5).unwrap_or(px);
+    sf.round_dp(max_dp)
+}
+
+/// Round an order size down (toward zero) to the asset's `szDecimals`.
+pub(crate) fn round_size(sz: Decimal, sz_decimals: u32) -> Decimal {
+    sz.round_dp_with_strategy(sz_decimals, RoundingStrategy::ToZero)
+}
 
 /// Build wire-format JSON from an [`OrderWire`].
 pub(crate) fn order_to_json(order: &OrderWire) -> Result<serde_json::Value, HlError> {
@@ -288,6 +301,13 @@ impl OrderExecutor {
             mid * (Decimal::ONE - slippage)
         };
 
+        let sz_decimals = self
+            .meta_cache
+            .sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
+        let limit_price = round_price_perp(limit_price, sz_decimals);
+        let size = round_size(size, sz_decimals);
+
         let order = if side.is_buy() {
             OrderWire::limit_buy(asset_idx, limit_price, size)
         } else {
@@ -359,6 +379,13 @@ impl OrderExecutor {
         } else {
             mid * (Decimal::ONE - slippage)
         };
+
+        let sz_decimals = self
+            .meta_cache
+            .sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
+        let limit_price = round_price_perp(limit_price, sz_decimals);
+        let close_size = round_size(close_size, sz_decimals);
 
         let order = if close_side.is_buy() {
             OrderWire::limit_buy(asset_idx, limit_price, close_size)
@@ -474,6 +501,24 @@ fn extract_position_szi(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round_price_perp_caps_5_sig_figs() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let p = round_price_perp(Decimal::from_str("66604.125").unwrap(), 5);
+        assert_eq!(p, Decimal::from_str("66604").unwrap());
+        let p2 = round_price_perp(Decimal::from_str("0.0034521").unwrap(), 0);
+        assert_eq!(p2, Decimal::from_str("0.003452").unwrap());
+    }
+
+    #[test]
+    fn round_size_truncates_to_sz_decimals() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let s = round_size(Decimal::from_str("0.123456").unwrap(), 3);
+        assert_eq!(s, Decimal::from_str("0.123").unwrap());
+    }
 
     #[test]
     fn slippage_buy_increases_price() {
