@@ -16,8 +16,11 @@ pub fn normalize_coin(coin: &str) -> String {
 
 /// Format a [`Decimal`] into Hyperliquid canonical wire form.
 ///
-/// Mirrors the Python SDK's `float_to_wire`: at most 8 decimal places,
-/// trailing zeros stripped, plain decimal (never scientific notation).
+/// Approximates the Python SDK's `float_to_wire`: at most 8 decimal places,
+/// trailing zeros stripped, plain decimal (never scientific notation). Two
+/// deliberate divergences: this rounds to 8 dp where Python *raises* if rounding
+/// would lose precision, and `rust_decimal` rounds exact decimals where Python
+/// rounds binary floats, so midpoint behaviour can differ.
 pub fn normalize_wire(value: Decimal) -> String {
     // round_dp uses banker's rounding (MidpointNearestEven), matching the
     // Python SDK's float_to_wire (`f"{x:.8f}"`). normalize() strips trailing

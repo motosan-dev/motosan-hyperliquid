@@ -218,17 +218,17 @@ fn recover_address(digest: &[u8; 32], r: &str, s: &str, v: u8) -> String {
     format!("0x{}", hex::encode(&hash[12..]))
 }
 
-#[test]
-fn usd_send_recovers_signer_under_canonical_domain() {
+fn assert_usd_send_recovers(is_mainnet: bool) {
     let signer = K256Signer::new(TEST_KEY);
     let addr = signer.address.clone();
     let destination = "0x0000000000000000000000000000000000000001";
     let amount = "12.5";
     let time = 1_700_000_000_000u64;
+    let hl_chain = if is_mainnet { "Mainnet" } else { "Testnet" };
 
     let action = json!({
         "type": "usdSend",
-        "hyperliquidChain": "Mainnet",
+        "hyperliquidChain": hl_chain,
         "signatureChainId": "0x66eee",
         "destination": destination,
         "amount": amount,
@@ -246,15 +246,27 @@ fn usd_send_recovers_signer_under_canonical_domain() {
         &action,
         &types,
         "HyperliquidTransaction:UsdSend",
-        true,
+        is_mainnet,
     )
     .unwrap();
 
-    let digest = oracle_usd_send_digest(destination, amount, time, true);
+    let digest = oracle_usd_send_digest(destination, amount, time, is_mainnet);
     let recovered = recover_address(&digest, &sig.r, &sig.s, sig.v);
     assert_eq!(
         recovered.to_lowercase(),
         addr.to_lowercase(),
-        "usdSend signature must recover the signer under the canonical domain (R2)"
+        "usdSend signature must recover the signer under the canonical domain (R2, is_mainnet={is_mainnet})"
     );
+}
+
+#[test]
+fn usd_send_recovers_signer_under_canonical_domain() {
+    assert_usd_send_recovers(true);
+}
+
+#[test]
+fn usd_send_recovers_signer_under_canonical_domain_testnet() {
+    // The case R2 is specifically about: 0.5.1 signed testnet with a chainId that
+    // did not match the canonical 421614 domain. Must recover after the fix.
+    assert_usd_send_recovers(false);
 }
