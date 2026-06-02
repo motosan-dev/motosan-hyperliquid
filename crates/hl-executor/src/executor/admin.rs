@@ -13,7 +13,11 @@ impl OrderExecutor {
         agent_name: Option<&str>,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() { "Mainnet" } else { "Testnet" };
+        let chain = if self.client.is_mainnet() {
+            "Mainnet"
+        } else {
+            "Testnet"
+        };
         let nonce = self.next_nonce();
         let mut action = serde_json::json!({
             "type": "approveAgent",
@@ -50,9 +54,15 @@ impl OrderExecutor {
             self.client.is_mainnet(),
         )?;
 
-        let result = self.client.post_action(action, &signature, nonce, vault).await?;
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault)
+            .await?;
 
-        let api_status = result.get("status").and_then(|s| s.as_str()).unwrap_or("unknown");
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
         if api_status != "ok" {
             return Err(HlError::Rejected {
                 reason: format!("Exchange rejected approveAgent: {}", result),
@@ -83,10 +93,7 @@ impl OrderExecutor {
 
     /// Claim earned trading rewards.
     #[tracing::instrument(skip(self))]
-    pub async fn claim_rewards(
-        &self,
-        vault: Option<&str>,
-    ) -> Result<HlActionResponse, HlError> {
+    pub async fn claim_rewards(&self, vault: Option<&str>) -> Result<HlActionResponse, HlError> {
         let action = serde_json::json!({"type": "claimRewards"});
         let result = self.send_signed_action(action, vault).await?;
         serde_json::from_value(result)

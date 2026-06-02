@@ -33,7 +33,11 @@ impl OrderExecutor {
         amount: Decimal,
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
-        let chain = if self.client.is_mainnet() { "Mainnet" } else { "Testnet" };
+        let chain = if self.client.is_mainnet() {
+            "Mainnet"
+        } else {
+            "Testnet"
+        };
         let nonce = self.next_nonce();
         let action = serde_json::json!({
             "type": "usdSend",
@@ -60,9 +64,15 @@ impl OrderExecutor {
             self.client.is_mainnet(),
         )?;
 
-        let result = self.client.post_action(action, &signature, nonce, vault).await?;
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault)
+            .await?;
 
-        let api_status = result.get("status").and_then(|s| s.as_str()).unwrap_or("unknown");
+        let api_status = result
+            .get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
         if api_status != "ok" {
             return Err(HlError::Rejected {
                 reason: format!("Exchange rejected usdSend: {}", result),
@@ -86,7 +96,9 @@ impl OrderExecutor {
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
         if amount <= Decimal::ZERO {
-            return Err(HlError::Parse("class_transfer amount must be positive".into()));
+            return Err(HlError::Parse(
+                "class_transfer amount must be positive".into(),
+            ));
         }
         // Truncate to 6 decimal places (micro-units), then convert to integer
         let micro = (amount * Decimal::from(1_000_000)).trunc();

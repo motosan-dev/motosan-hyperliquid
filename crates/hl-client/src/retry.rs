@@ -81,7 +81,9 @@ impl TimeoutConfig {
             return Err(HlError::Config("connect_timeout must be > 0".into()));
         }
         if self.connect_timeout > self.request_timeout {
-            return Err(HlError::Config("connect_timeout must be <= request_timeout".into()));
+            return Err(HlError::Config(
+                "connect_timeout must be <= request_timeout".into(),
+            ));
         }
         Ok(())
     }
@@ -170,13 +172,19 @@ mod tests {
 
     #[test]
     fn validate_zero_base_delay_fails() {
-        let config = RetryConfig { base_delay_ms: 0, ..Default::default() };
+        let config = RetryConfig {
+            base_delay_ms: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn validate_zero_backoff_factor_fails() {
-        let config = RetryConfig { backoff_factor: 0, ..Default::default() };
+        let config = RetryConfig {
+            backoff_factor: 0,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 
@@ -187,7 +195,10 @@ mod tests {
 
     #[test]
     fn validate_zero_request_timeout_fails() {
-        let config = TimeoutConfig { request_timeout: Duration::ZERO, ..Default::default() };
+        let config = TimeoutConfig {
+            request_timeout: Duration::ZERO,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 

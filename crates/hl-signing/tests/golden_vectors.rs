@@ -161,7 +161,12 @@ fn keccak(bytes: &[u8]) -> [u8; 32] {
 /// Independent oracle for the usdSend EIP-712 digest: canonical domain
 /// (HyperliquidSignTransaction, chainId 421614, verifyingContract 0x0) and the
 /// UsdSend struct hash. `signatureChainId` is NOT a hashed type field.
-fn oracle_usd_send_digest(destination: &str, amount: &str, time: u64, is_mainnet: bool) -> [u8; 32] {
+fn oracle_usd_send_digest(
+    destination: &str,
+    amount: &str,
+    time: u64,
+    is_mainnet: bool,
+) -> [u8; 32] {
     let hl_chain = if is_mainnet { "Mainnet" } else { "Testnet" };
 
     let domain_type = keccak(

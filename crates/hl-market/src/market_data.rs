@@ -274,7 +274,13 @@ pub fn parse_asset_info(response: &serde_json::Value) -> Result<Vec<HlAssetInfo>
             Decimal::ONE / Decimal::from(10u64.pow(sz_decimals))
         };
 
-        result.push(HlAssetInfo::new(coin, idx as u32, min_size, sz_decimals, px_decimals));
+        result.push(HlAssetInfo::new(
+            coin,
+            idx as u32,
+            min_size,
+            sz_decimals,
+            px_decimals,
+        ));
     }
 
     Ok(result)

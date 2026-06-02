@@ -162,19 +162,28 @@ mod tests {
 
     #[test]
     fn validate_zero_rps_fails() {
-        let config = RateLimitConfig { max_rps: Some(0), max_concurrent: None };
+        let config = RateLimitConfig {
+            max_rps: Some(0),
+            max_concurrent: None,
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn validate_zero_concurrent_fails() {
-        let config = RateLimitConfig { max_rps: None, max_concurrent: Some(0) };
+        let config = RateLimitConfig {
+            max_rps: None,
+            max_concurrent: Some(0),
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn validate_unlimited_ok() {
-        let config = RateLimitConfig { max_rps: None, max_concurrent: None };
+        let config = RateLimitConfig {
+            max_rps: None,
+            max_concurrent: None,
+        };
         assert!(config.validate().is_ok());
     }
 }

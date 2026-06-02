@@ -168,11 +168,7 @@ impl WsMessage {
                 WsMessage::Trades(TradesData { coin, trades })
             }
             "candle" => WsMessage::Candle(CandleData {
-                coin: data
-                    .get("s")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("")
-                    .into(),
+                coin: data.get("s").and_then(|c| c.as_str()).unwrap_or("").into(),
                 candle: data,
             }),
             "bbo" => WsMessage::Bbo(BboData {
@@ -366,8 +362,9 @@ impl HyperliquidWs {
     /// Subscribe to a typed channel. The subscription is serialized and
     /// forwarded to [`subscribe_raw`](Self::subscribe_raw).
     pub async fn subscribe_typed(&mut self, sub: Subscription) -> Result<(), HlError> {
-        let value = serde_json::to_value(&sub)
-            .map_err(|e| HlError::serialization(format!("failed to serialize subscription: {e}")))?;
+        let value = serde_json::to_value(&sub).map_err(|e| {
+            HlError::serialization(format!("failed to serialize subscription: {e}"))
+        })?;
         self.subscribe_raw(value).await
     }
 
@@ -378,37 +375,47 @@ impl HyperliquidWs {
 
     /// Subscribe to L2 book updates for a coin.
     pub async fn subscribe_l2_book(&mut self, coin: &str) -> Result<(), HlError> {
-        self.subscribe_typed(Subscription::L2Book { coin: coin.into() }).await
+        self.subscribe_typed(Subscription::L2Book { coin: coin.into() })
+            .await
     }
 
     /// Subscribe to trades for a coin.
     pub async fn subscribe_trades(&mut self, coin: &str) -> Result<(), HlError> {
-        self.subscribe_typed(Subscription::Trades { coin: coin.into() }).await
+        self.subscribe_typed(Subscription::Trades { coin: coin.into() })
+            .await
     }
 
     /// Subscribe to candle updates for a coin and interval.
     pub async fn subscribe_candle(&mut self, coin: &str, interval: &str) -> Result<(), HlError> {
-        self.subscribe_typed(Subscription::Candle { coin: coin.into(), interval: interval.into() }).await
+        self.subscribe_typed(Subscription::Candle {
+            coin: coin.into(),
+            interval: interval.into(),
+        })
+        .await
     }
 
     /// Subscribe to order updates for a user.
     pub async fn subscribe_order_updates(&mut self, user: &str) -> Result<(), HlError> {
-        self.subscribe_typed(Subscription::OrderUpdates { user: user.into() }).await
+        self.subscribe_typed(Subscription::OrderUpdates { user: user.into() })
+            .await
     }
 
     /// Subscribe to user fills.
     pub async fn subscribe_user_fills(&mut self, user: &str) -> Result<(), HlError> {
-        self.subscribe_typed(Subscription::UserFills { user: user.into() }).await
+        self.subscribe_typed(Subscription::UserFills { user: user.into() })
+            .await
     }
 
     /// Subscribe to user events.
     pub async fn subscribe_user_events(&mut self, user: &str) -> Result<(), HlError> {
-        self.subscribe_typed(Subscription::UserEvents { user: user.into() }).await
+        self.subscribe_typed(Subscription::UserEvents { user: user.into() })
+            .await
     }
 
     /// Subscribe to user fundings.
     pub async fn subscribe_user_fundings(&mut self, user: &str) -> Result<(), HlError> {
-        self.subscribe_typed(Subscription::UserFundings { user: user.into() }).await
+        self.subscribe_typed(Subscription::UserFundings { user: user.into() })
+            .await
     }
 
     /// Read the next typed message from the WebSocket.
@@ -787,30 +794,51 @@ mod tests {
 
     #[test]
     fn subscription_candle_serialization() {
-        let sub = Subscription::Candle { coin: "BTC".into(), interval: "1h".into() };
+        let sub = Subscription::Candle {
+            coin: "BTC".into(),
+            interval: "1h".into(),
+        };
         let json = serde_json::to_value(&sub).unwrap();
-        assert_eq!(json, serde_json::json!({"type": "candle", "coin": "BTC", "interval": "1h"}));
+        assert_eq!(
+            json,
+            serde_json::json!({"type": "candle", "coin": "BTC", "interval": "1h"})
+        );
     }
 
     #[test]
     fn subscription_user_fills_serialization() {
-        let sub = Subscription::UserFills { user: "0xABC".into() };
+        let sub = Subscription::UserFills {
+            user: "0xABC".into(),
+        };
         let json = serde_json::to_value(&sub).unwrap();
-        assert_eq!(json, serde_json::json!({"type": "userFills", "user": "0xABC"}));
+        assert_eq!(
+            json,
+            serde_json::json!({"type": "userFills", "user": "0xABC"})
+        );
     }
 
     #[test]
     fn subscription_order_updates_serialization() {
-        let sub = Subscription::OrderUpdates { user: "0xDEF".into() };
+        let sub = Subscription::OrderUpdates {
+            user: "0xDEF".into(),
+        };
         let json = serde_json::to_value(&sub).unwrap();
-        assert_eq!(json, serde_json::json!({"type": "orderUpdates", "user": "0xDEF"}));
+        assert_eq!(
+            json,
+            serde_json::json!({"type": "orderUpdates", "user": "0xDEF"})
+        );
     }
 
     #[test]
     fn subscription_user_events_serialization() {
-        let sub = Subscription::UserEvents { user: "0x123".into() };
+        let sub = Subscription::UserEvents {
+            user: "0x123".into(),
+        };
         let json = serde_json::to_value(&sub).unwrap();
-        assert_eq!(json, serde_json::json!({"type": "userEvents", "user": "0x123"}));
+        assert_eq!(
+            json,
+            serde_json::json!({"type": "userEvents", "user": "0x123"})
+        );
     }
 
     #[test]

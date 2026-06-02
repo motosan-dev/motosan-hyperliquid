@@ -134,8 +134,7 @@ impl OrderExecutor {
     ) -> Result<OrderResponse, HlError> {
         ensure_cloid(&mut order);
 
-        let fallback_price: Decimal =
-            Decimal::from_str(&order.limit_px).unwrap_or(Decimal::ZERO);
+        let fallback_price: Decimal = Decimal::from_str(&order.limit_px).unwrap_or(Decimal::ZERO);
         let fallback_size: Decimal = Decimal::from_str(&order.sz).unwrap_or(Decimal::ZERO);
 
         let order_json = order_to_json(&order)?;
@@ -223,8 +222,7 @@ impl OrderExecutor {
 
         let result = self.send_signed_action(action, vault).await?;
 
-        let (order_id, fill_price, fill_size) =
-            parse_order_response(&result, trigger_price, size)?;
+        let (order_id, fill_price, fill_size) = parse_order_response(&result, trigger_price, size)?;
 
         // Trigger orders typically rest unfilled until the trigger fires
         let status = if fill_size < size * FILL_THRESHOLD && fill_size > Decimal::ZERO {
@@ -479,23 +477,15 @@ async fn extract_mid_price(
 /// Extract a position's size and side from a `clearinghouseState` response.
 ///
 /// Returns `(side, abs_size)` where `side` is the position direction (Buy = long, Sell = short).
-fn extract_position_szi(
-    resp: &serde_json::Value,
-    coin: &str,
-) -> Result<(Side, Decimal), HlError> {
+fn extract_position_szi(resp: &serde_json::Value, coin: &str) -> Result<(Side, Decimal), HlError> {
     let positions = resp
         .get("assetPositions")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| {
-            HlError::Parse("clearinghouseState: missing 'assetPositions'".into())
-        })?;
+        .ok_or_else(|| HlError::Parse("clearinghouseState: missing 'assetPositions'".into()))?;
 
     for pos in positions {
         let position = &pos["position"];
-        let pos_coin = position
-            .get("coin")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let pos_coin = position.get("coin").and_then(|v| v.as_str()).unwrap_or("");
         if pos_coin.to_uppercase() != coin.to_uppercase() {
             continue;
         }
@@ -503,8 +493,12 @@ fn extract_position_szi(
             .get("szi")
             .and_then(|v| v.as_str())
             .ok_or_else(|| HlError::Parse("clearinghouseState: missing 'szi' field".into()))?;
-        let szi: Decimal = Decimal::from_str(szi_str)
-            .map_err(|e| HlError::Parse(format!("clearinghouseState: invalid szi '{}': {}", szi_str, e)))?;
+        let szi: Decimal = Decimal::from_str(szi_str).map_err(|e| {
+            HlError::Parse(format!(
+                "clearinghouseState: invalid szi '{}': {}",
+                szi_str, e
+            ))
+        })?;
 
         if szi.is_zero() {
             return Err(HlError::Parse(format!(

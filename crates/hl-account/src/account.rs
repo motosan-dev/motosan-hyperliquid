@@ -138,10 +138,10 @@ impl Account {
             "startTime": start_time,
         });
         if let Some(et) = end_time {
-            payload.as_object_mut().unwrap().insert(
-                "endTime".to_string(),
-                serde_json::Value::Number(et.into()),
-            );
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("endTime".to_string(), serde_json::Value::Number(et.into()));
         }
         let resp = self.client.post_info(payload).await?;
         resp.as_array()
@@ -163,10 +163,10 @@ impl Account {
             "startTime": start_time,
         });
         if let Some(et) = end_time {
-            payload.as_object_mut().unwrap().insert(
-                "endTime".to_string(),
-                serde_json::Value::Number(et.into()),
-            );
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("endTime".to_string(), serde_json::Value::Number(et.into()));
         }
         let resp = self.client.post_info(payload).await?;
         resp.as_array()
@@ -347,7 +347,9 @@ pub fn parse_fills(resp: &serde_json::Value) -> Result<Vec<HlFill>, HlError> {
             None => Decimal::ZERO,
         };
 
-        fills.push(HlFill::new(coin, px, sz, is_buy, timestamp, fee, closed_pnl));
+        fills.push(HlFill::new(
+            coin, px, sz, is_buy, timestamp, fee, closed_pnl,
+        ));
     }
 
     Ok(fills)

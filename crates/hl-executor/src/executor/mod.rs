@@ -171,9 +171,11 @@ impl OrderExecutor {
     /// Normalize a symbol string and look up its asset index in the meta cache.
     pub(crate) fn resolve_asset(&self, symbol: &str) -> Result<u32, HlError> {
         let coin = normalize_symbol(symbol);
-        self.meta_cache.asset_index_normalized(&coin).ok_or_else(|| {
-            HlError::Parse(format!("Asset '{}' not found in exchange universe", symbol))
-        })
+        self.meta_cache
+            .asset_index_normalized(&coin)
+            .ok_or_else(|| {
+                HlError::Parse(format!("Asset '{}' not found in exchange universe", symbol))
+            })
     }
 
     /// Borrow the underlying HTTP transport.
@@ -201,7 +203,8 @@ mod tests {
         // The exchange rebuilds the EIP-712 domain chainId as int(signatureChainId, 16);
         // it must equal 421614, the chainId motosan-wallet-core signs user-signed actions with.
         let parsed =
-            u64::from_str_radix(USER_SIGNED_SIGNATURE_CHAIN_ID.trim_start_matches("0x"), 16).unwrap();
+            u64::from_str_radix(USER_SIGNED_SIGNATURE_CHAIN_ID.trim_start_matches("0x"), 16)
+                .unwrap();
         assert_eq!(
             parsed, 421614,
             "posted signatureChainId must reconstruct to the user-signed domain chainId 421614"
