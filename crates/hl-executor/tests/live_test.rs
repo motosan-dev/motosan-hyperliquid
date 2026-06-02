@@ -16,6 +16,7 @@ fn setup() -> (HyperliquidClient, Box<dyn hl_signing::Signer>, String) {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_asset_meta_cache_load() {
     let (client, _, _) = setup();
     let cache = AssetMetaCache::load(&client).await;
@@ -32,6 +33,7 @@ async fn live_asset_meta_cache_load() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_order_executor_construction() {
     let (client, signer, address) = setup();
     let executor = OrderExecutor::from_client(client, signer, address).await;
@@ -50,6 +52,7 @@ async fn live_order_executor_construction() {
 // manually via the examples/ directory.
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_bulk_order_and_cancel() {
     let (client, signer, address) = setup();
     let executor = OrderExecutor::from_client(client, signer, address)
@@ -99,6 +102,7 @@ async fn live_bulk_order_and_cancel() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_cancel_by_cloid() {
     let (client, signer, address) = setup();
     let executor = OrderExecutor::from_client(client, signer, address)
@@ -137,6 +141,7 @@ async fn live_cancel_by_cloid() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_modify_order() {
     let (client, signer, address) = setup();
     let executor = OrderExecutor::from_client(client, signer, address)
@@ -194,6 +199,7 @@ async fn live_modify_order() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_update_leverage() {
     let (client, signer, address) = setup();
     let executor = OrderExecutor::from_client(client, signer, address)
@@ -216,6 +222,7 @@ async fn live_update_leverage() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_schedule_cancel() {
     let (client, signer, address) = setup();
     let executor = OrderExecutor::from_client(client, signer, address)

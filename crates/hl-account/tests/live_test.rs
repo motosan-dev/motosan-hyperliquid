@@ -14,6 +14,7 @@ fn account() -> (Account, String) {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_account_state() {
     let (acc, addr) = account();
     let state = acc.state(&addr).await;
@@ -24,6 +25,7 @@ async fn live_account_state() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_positions() {
     let (acc, addr) = account();
     let positions = acc.positions(&addr).await;
@@ -36,6 +38,7 @@ async fn live_positions() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_fills() {
     let (acc, addr) = account();
     let fills = acc.fills(&addr).await;
@@ -44,6 +47,7 @@ async fn live_fills() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_open_orders() {
     let (acc, addr) = account();
     let result = acc.open_orders(&addr).await;
@@ -51,6 +55,7 @@ async fn live_open_orders() {
 }
 
 #[tokio::test]
+#[ignore = "live: requires testnet; run with --all-features -- --ignored"]
 async fn live_historical_orders() {
     let (acc, addr) = account();
     let result = acc.historical_orders(&addr).await;
