@@ -33,6 +33,32 @@ pub(crate) fn ensure_cloid(order: &mut OrderWire) {
     }
 }
 
+/// Derive the close side and size for `market_close`. The side is ALWAYS taken
+/// from the live position sign (long -> Sell, short -> Buy). `size` is an
+/// unsigned magnitude: Some(m) closes m (must be > 0), None closes the full
+/// position. Direction is never encoded in the sign of `size`.
+pub(crate) fn resolve_close(
+    size: Option<Decimal>,
+    position_side: Side,
+    position_size: Decimal,
+) -> Result<(Side, Decimal), HlError> {
+    let close_side = if position_side.is_buy() {
+        Side::Sell
+    } else {
+        Side::Buy
+    };
+    let close_size = match size {
+        Some(m) if m > Decimal::ZERO => m,
+        Some(_) => {
+            return Err(HlError::Parse(
+                "market_close: size must be a positive magnitude".into(),
+            ))
+        }
+        None => position_size,
+    };
+    Ok((close_side, close_size))
+}
+
 /// Build wire-format JSON from an [`OrderWire`].
 pub(crate) fn order_to_json(order: &OrderWire) -> Result<serde_json::Value, HlError> {
     let mut order_json = serde_json::json!({
@@ -96,6 +122,10 @@ impl OrderExecutor {
     /// The `OrderWire` must already have the asset index, price, size, order
     /// type, etc. fully populated. This method constructs the action JSON,
     /// signs it, submits it, and parses the response.
+    ///
+    /// Direct limit orders are normalized to canonical wire strings by
+    /// [`OrderWire`] builders, but asset-specific grid rounding is the caller's
+    /// responsibility.
     #[tracing::instrument(skip(self, order), fields(asset = order.asset, is_buy = order.is_buy))]
     pub async fn place_order(
         &self,
@@ -152,6 +182,13 @@ impl OrderExecutor {
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
         let asset_idx = self.resolve_asset(symbol)?;
+        let coin = super::normalize_symbol(symbol);
+        let sz_decimals = self
+            .meta_cache
+            .sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
+        let trigger_price = round_price_perp(trigger_price, sz_decimals);
+        let size = round_size(size, sz_decimals);
 
         let is_buy = side.is_buy();
         let cloid = new_cloid();
@@ -161,12 +198,12 @@ impl OrderExecutor {
             "orders": [{
                 "a": asset_idx,
                 "b": is_buy,
-                "p": trigger_price.to_string(),
-                "s": size.to_string(),
+                "p": hl_types::normalize_wire(trigger_price),
+                "s": hl_types::normalize_wire(size),
                 "r": true,
                 "t": {
                     "trigger": {
-                        "triggerPx": trigger_price.to_string(),
+                        "triggerPx": hl_types::normalize_wire(trigger_price),
                         "isMarket": true,
                         "tpsl": tpsl.to_string()
                     }
@@ -340,9 +377,10 @@ impl OrderExecutor {
 
     /// Close an open position with a market order.
     ///
-    /// If `size` is `None`, the current position size is queried from the
-    /// exchange via `clearinghouseState`. The close side is determined from
-    /// the position sign (long → sell, short → buy).
+    /// The live position is always queried via `clearinghouseState`; the close
+    /// side is derived from the live position sign (long → sell, short → buy).
+    /// If `size` is `Some`, it is an unsigned positive magnitude to close; if
+    /// `None`, the full live position size is closed.
     #[tracing::instrument(skip(self))]
     pub async fn market_close(
         &self,
@@ -353,56 +391,28 @@ impl OrderExecutor {
     ) -> Result<OrderResponse, HlError> {
         let coin = super::normalize_symbol(symbol);
 
-        let (close_side, close_size) = match size {
-            Some(sz) => {
-                // Caller must indicate direction via sign: positive = close long (sell),
-                // negative = close short (buy).
-                if sz > Decimal::ZERO {
-                    (Side::Sell, sz)
-                } else if sz < Decimal::ZERO {
-                    (Side::Buy, sz.abs())
-                } else {
-                    return Err(HlError::Parse(
-                        "market_close: size must not be zero".into(),
-                    ));
-                }
-            }
-            None => {
-                // Query current position from exchange
-                let resp = self
-                    .client
-                    .post_info(serde_json::json!({
-                        "type": "clearinghouseState",
-                        "user": self.address,
-                    }))
-                    .await?;
-
-                let (szi_side, szi_size) = extract_position_szi(&resp, &coin)?;
-                let close_side = if szi_side.is_buy() {
-                    // Position is long → sell to close
-                    Side::Sell
-                } else {
-                    // Position is short → buy to close
-                    Side::Buy
-                };
-                (close_side, szi_size)
-            }
-        };
+        let resp = self
+            .client
+            .post_info(serde_json::json!({
+                "type": "clearinghouseState",
+                "user": self.address,
+            }))
+            .await?;
+        let (szi_side, position_size) = extract_position_szi(&resp, &coin)?;
+        let (close_side, close_size) = resolve_close(size, szi_side, position_size)?;
 
         let asset_idx = self.resolve_asset(symbol)?;
+        let sz_decimals = self
+            .meta_cache
+            .sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
         let mid = extract_mid_price(&self.client, &coin).await?;
-
         let slippage = slippage.unwrap_or_else(|| Decimal::new(5, 2));
         let limit_price = if close_side.is_buy() {
             mid * (Decimal::ONE + slippage)
         } else {
             mid * (Decimal::ONE - slippage)
         };
-
-        let sz_decimals = self
-            .meta_cache
-            .sz_decimals(&coin)
-            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
         let limit_price = round_price_perp(limit_price, sz_decimals);
         let close_size = round_size(close_size, sz_decimals);
 
@@ -520,6 +530,28 @@ fn extract_position_szi(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_close_derives_side_from_position_not_size_sign() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let mag = Decimal::from_str("1.5").unwrap();
+        let pos = Decimal::from_str("4").unwrap();
+        assert_eq!(
+            resolve_close(Some(mag), Side::Buy, pos).unwrap(),
+            (Side::Sell, mag)
+        );
+        assert_eq!(
+            resolve_close(Some(mag), Side::Sell, pos).unwrap(),
+            (Side::Buy, mag)
+        );
+        assert_eq!(
+            resolve_close(None, Side::Buy, pos).unwrap(),
+            (Side::Sell, pos)
+        );
+        assert!(resolve_close(Some(Decimal::from_str("-1").unwrap()), Side::Buy, pos).is_err());
+        assert!(resolve_close(Some(Decimal::ZERO), Side::Buy, pos).is_err());
+    }
 
     #[test]
     fn new_cloid_is_hyperliquid_format() {
