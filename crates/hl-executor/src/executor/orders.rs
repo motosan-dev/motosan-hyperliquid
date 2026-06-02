@@ -8,10 +8,15 @@ use super::response::{parse_bulk_order_response_with_fallbacks, parse_order_resp
 use super::{OrderExecutor, FILL_THRESHOLD};
 
 /// Round a perp price to Hyperliquid's rule: at most 5 significant figures
-/// AND at most `6 - sz_decimals` decimal places.
+/// AND at most `6 - sz_decimals` decimal places. Integer prices are returned
+/// unchanged — Hyperliquid allows them regardless of significant figures.
 pub(crate) fn round_price_perp(px: Decimal, sz_decimals: u32) -> Decimal {
     let max_dp = 6u32.saturating_sub(sz_decimals);
-    let sf = px.round_sf(5).unwrap_or(px);
+    let sf = if px.fract() == Decimal::ZERO {
+        px
+    } else {
+        px.round_sf(5).unwrap_or(px)
+    };
     sf.round_dp(max_dp)
 }
 
@@ -189,26 +194,20 @@ impl OrderExecutor {
         let trigger_price = round_price_perp(trigger_price, sz_decimals);
         let size = round_size(size, sz_decimals);
 
-        let is_buy = side.is_buy();
-        let cloid = new_cloid();
+        // Route through the builder so price/size > 0 is validated — a sub-lot
+        // size that round_size truncated to 0 must be rejected, not silently
+        // sent as "0" — and wire serialization stays consistent with place_order.
+        let order = if side.is_buy() {
+            OrderWire::trigger_buy(asset_idx, trigger_price, size, tpsl)
+        } else {
+            OrderWire::trigger_sell(asset_idx, trigger_price, size, tpsl)
+        }
+        .cloid(new_cloid())
+        .build()?;
 
         let action = serde_json::json!({
             "type": "order",
-            "orders": [{
-                "a": asset_idx,
-                "b": is_buy,
-                "p": hl_types::normalize_wire(trigger_price),
-                "s": hl_types::normalize_wire(size),
-                "r": true,
-                "t": {
-                    "trigger": {
-                        "triggerPx": hl_types::normalize_wire(trigger_price),
-                        "isMarket": true,
-                        "tpsl": tpsl.to_string()
-                    }
-                },
-                "c": cloid
-            }],
+            "orders": [order_to_json(&order)?],
             "grouping": "na"
         });
 
@@ -594,6 +593,81 @@ mod tests {
         use std::str::FromStr;
         let s = round_size(Decimal::from_str("0.123456").unwrap(), 3);
         assert_eq!(s, Decimal::from_str("0.123").unwrap());
+    }
+
+    #[test]
+    fn round_price_perp_preserves_integer_prices() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        // Hyperliquid allows integer prices regardless of sig figs — must NOT round.
+        assert_eq!(
+            round_price_perp(Decimal::from(123456), 0),
+            Decimal::from(123456)
+        );
+        assert_eq!(
+            round_price_perp(Decimal::from(1234567), 0),
+            Decimal::from(1234567)
+        );
+        // Non-integer prices are still capped to 5 significant figures.
+        assert_eq!(
+            round_price_perp(Decimal::from_str("123456.7").unwrap(), 0),
+            Decimal::from(123460)
+        );
+    }
+
+    #[test]
+    fn round_size_to_zero_then_build_is_rejected() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        // A sub-lot size truncates to 0...
+        let sz = round_size(Decimal::from_str("0.0009").unwrap(), 3);
+        assert_eq!(sz, Decimal::ZERO);
+        // ...and a trigger order built from it must be rejected, not sent as "0".
+        let built = OrderWire::trigger_buy(0, Decimal::from(100), sz, Tpsl::Sl).build();
+        assert!(built.is_err(), "zero size must fail build()");
+    }
+
+    #[test]
+    fn order_to_json_limit_shape() {
+        use rust_decimal::Decimal;
+        let order = OrderWire::limit_buy(3, Decimal::from(100), Decimal::from(2))
+            .tif(Tif::Ioc)
+            .cloid("0xabc")
+            .build()
+            .unwrap();
+        let j = order_to_json(&order).unwrap();
+        assert_eq!(j["a"].as_u64(), Some(3));
+        assert_eq!(j["b"].as_bool(), Some(true));
+        assert_eq!(j["p"].as_str(), Some("100"));
+        assert_eq!(j["s"].as_str(), Some("2"));
+        assert_eq!(j["r"].as_bool(), Some(false));
+        assert_eq!(j["t"]["limit"]["tif"].as_str(), Some("Ioc"));
+        assert_eq!(j["c"].as_str(), Some("0xabc"));
+        assert!(j["t"].get("trigger").is_none());
+    }
+
+    #[test]
+    fn order_to_json_trigger_shape() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let order = OrderWire::trigger_sell(
+            0,
+            Decimal::from(95000),
+            Decimal::from_str("0.5").unwrap(),
+            Tpsl::Sl,
+        )
+        .build()
+        .unwrap();
+        let j = order_to_json(&order).unwrap();
+        assert_eq!(j["a"].as_u64(), Some(0));
+        assert_eq!(j["b"].as_bool(), Some(false));
+        assert_eq!(j["p"].as_str(), Some("95000"));
+        assert_eq!(j["s"].as_str(), Some("0.5"));
+        assert_eq!(j["r"].as_bool(), Some(true));
+        assert_eq!(j["t"]["trigger"]["triggerPx"].as_str(), Some("95000"));
+        assert_eq!(j["t"]["trigger"]["isMarket"].as_bool(), Some(true));
+        assert_eq!(j["t"]["trigger"]["tpsl"].as_str(), Some("sl"));
+        assert!(j.get("c").is_none(), "no cloid set -> no c key");
     }
 
     #[test]
