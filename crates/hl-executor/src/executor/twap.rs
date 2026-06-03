@@ -142,4 +142,17 @@ mod tests {
         let result = executor.cancel_twap("NOSUCHCOIN", 42, None).await;
         assert!(result.is_err());
     }
+
+    #[tokio::test]
+    async fn place_twap_order_rejects_zero_size() {
+        let executor = test_executor(vec![]);
+        // 0.000001 truncates to 0 at BTC szDecimals=5 -> rejected before submit.
+        let result = executor
+            .place_twap_order("BTC", true, Decimal::new(1, 6), 3600, false, true, None)
+            .await;
+        assert!(
+            result.is_err(),
+            "twap size rounding to zero must be rejected"
+        );
+    }
 }
