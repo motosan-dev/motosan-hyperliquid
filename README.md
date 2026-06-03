@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Installation
 
-**Prerequisites**: Rust 1.70+, Cargo
+**Prerequisites**: Rust 1.91+, Cargo
 
 This SDK is organized as a Cargo workspace. Each crate can be depended on individually:
 
