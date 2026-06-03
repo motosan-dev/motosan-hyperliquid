@@ -29,7 +29,7 @@ def action_hash(action, vault_address, nonce, expires_after):
     data = msgpack.packb(action)
     data += nonce.to_bytes(8, "big")
     if vault_address is None: data += b"\x00"
-    else:                     data += b"\x01" + bytes.fromhex(vault_address[2:])
+    else:                     data += b"\x01" + bytes.fromhex(vault_address[2:])  # simplified; SDK's address_to_bytes strips "0x" only if present
     if expires_after is not None:
         data += b"\x00"
         data += expires_after.to_bytes(8, "big")
@@ -169,40 +169,75 @@ pub use operations::hyperliquid::{
 
 ### Task A3: Cross-language golden vector for the expiry path
 
+> **All of Task A3 happens in the `motosan-wallet-core` repo working tree.** The vector file (`tests/vectors/hyperliquid.json`) and harness (`VectorFile`/`load_vectors`/`test_vector_l1_signature_*`) live there and are **not** shipped in the published crate — they cannot be edited or run from `motosan-hyperliquid` or against the cargo-registry copy.
+
 The repo already has `tests/vectors/hyperliquid.json` + `test_vector_l1_signature_mainnet/testnet`. Add an expiry vector generated from the **official Python SDK** so the Rust signature is proven byte-equal.
 
-- [ ] **Step 1: Generate the reference** with the Python SDK (one-off script, commit its output, not the script):
+- [ ] **Step 1: Generate the reference** with the Python SDK. **Record the SDK version** used (`pip show hyperliquid-python-sdk`) in the commit message / a JSON comment, since the byte parity depends on it.
 
 ```python
-# uses hyperliquid-python-sdk + eth_account
+# pip install hyperliquid-python-sdk eth_account   # RECORD the installed version!
 from hyperliquid.utils.signing import action_hash, sign_l1_action
 from eth_account import Account
 pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"  # hardhat #0
 wallet = Account.from_key(pk)
 action = {"type": "order", "orders": [], "grouping": "na"}
 nonce, expires = 1700000000000, 1700000060000
-h = action_hash(action, None, nonce, expires).hex()
+h = "0x" + action_hash(action, None, nonce, expires).hex()
+
+# Rust HlSignature formats r/s as 0x + EXACTLY 64 lowercase hex (zero-padded);
+# Python eth_utils.to_hex does NOT zero-pad, so pad here or the equality test
+# will spuriously fail when r/s has a leading zero byte.
+def pad(x): return "0x" + x[2:].rjust(64, "0")
+
+print("action_hash", h)
 for is_main in (True, False):
-    sig = sign_l1_action(wallet, action, None, nonce, expires, is_main)
-    print(is_main, h, sig)  # -> fill l1_action_with_expiry below
+    sig = sign_l1_action(wallet, action, None, nonce, expires, is_main)  # returns {"r","s","v"}
+    # v is the integer 27 or 28; r/s are 0x hex strings.
+    print("mainnet" if is_main else "testnet", "r", pad(sig["r"]), "s", pad(sig["s"]), "v", sig["v"])
 ```
 
-- [ ] **Step 2:** Extend `tests/vectors/hyperliquid.json` with an `l1_action_with_expiry` object holding `{action, nonce, expires_after, action_hash, mainnet:{is_mainnet,r,s,v}, testnet:{...}}` using the printed values. Extend the `VectorFile`/deserializer struct accordingly.
+- [ ] **Step 2:** Add a **new, optional** field `l1_action_with_expiry` to `VectorFile` (Option keeps existing `hyperliquid.json` parsing green; making it non-optional would force regenerating the whole file). Add a struct mirroring `L1ActionVector` plus `expires_after`:
 
-- [ ] **Step 3: Add the parity test:**
+```rust
+#[derive(serde::Deserialize)]
+struct VectorFile {
+    private_key: String,
+    address: String,
+    l1_action: L1ActionVector,
+    #[serde(default)]
+    l1_action_with_expiry: Option<L1ActionWithExpiryVector>,
+}
+
+#[derive(serde::Deserialize)]
+struct L1ActionWithExpiryVector {
+    action: Value,
+    nonce: u64,
+    expires_after: u64,
+    action_hash: String,
+    mainnet: SignatureVector, // reuse existing struct (is_mainnet,r,s,v: String/String/u8)
+    testnet: SignatureVector,
+}
+```
+
+Then add the `l1_action_with_expiry` object to `tests/vectors/hyperliquid.json` using the padded values printed in Step 1.
+
+- [ ] **Step 3: Add the parity test** (both networks; skips cleanly if the vector is absent):
 
 ```rust
 #[test]
 fn test_vector_l1_signature_with_expiry() {
     let v = load_vectors();
-    let e = v.l1_action_with_expiry; // new field
+    let Some(e) = v.l1_action_with_expiry else { return };
     let signer = LocalSigner::from_hex(&v.private_key).unwrap();
 
     let hash = compute_action_hash_with_expiry(&e.action, e.nonce, None, Some(e.expires_after)).unwrap();
     assert_eq!(format!("0x{}", hex::encode(hash)), e.action_hash);
 
-    let sig = sign_l1_action_with_expiry(&signer, &e.action, e.nonce, e.mainnet.is_mainnet, None, Some(e.expires_after)).unwrap();
-    assert_eq!((sig.r, sig.s, sig.v), (e.mainnet.r, e.mainnet.s, e.mainnet.v));
+    for sv in [&e.mainnet, &e.testnet] {
+        let sig = sign_l1_action_with_expiry(&signer, &e.action, e.nonce, sv.is_mainnet, None, Some(e.expires_after)).unwrap();
+        assert_eq!((sig.r.clone(), sig.s.clone(), sig.v), (sv.r.clone(), sv.s.clone(), sv.v));
+    }
 }
 ```
 
@@ -215,6 +250,8 @@ fn test_vector_l1_signature_with_expiry() {
 ---
 
 # Part B — `motosan-hyperliquid` (after wallet-core 0.5.3 is published)
+
+> **Hard precondition:** `motosan-wallet-core >= 0.5.3` must be **live on crates.io** before starting (check `cargo search motosan-wallet-core` or crates.io — today only 0.5.0/0.5.1/0.5.2 exist). Do **NOT** substitute a `git`/`path` dependency to get ahead of the publish — `hl-signing` must depend on the published crate. Use the exact version A4 recorded.
 
 Reference symbols, not line numbers (lines shift). Verify each insertion point with codegraph/grep before editing.
 
@@ -265,7 +302,7 @@ pub fn sign_l1_action_with_expiry(
 }
 ```
 
-- [ ] **Step 4:** Add `sign_l1_action_with_expiry` to the `pub use eip712::{...}` list in `crates/hl-signing/src/lib.rs`. `cargo test -p hl-signing` → PASS. **Commit.**
+- [ ] **Step 4:** Add `sign_l1_action_with_expiry` to the `pub use eip712::{...}` list in `crates/hl-signing/src/lib.rs`, **and** to the facade prelude's `#[cfg(feature = "signing")]` re-export block in `crates/motosan-hyperliquid/src/prelude.rs` (next to the existing `sign_l1_action`). *(No prelude change is needed for `set_expires_after` — it's a method on the already-exported `OrderExecutor`.)* `cargo test -p hl-signing` → PASS. **Commit.**
 
 ### Task B3: `HttpTransport::post_action` gains `expires_after`
 
@@ -297,18 +334,29 @@ if let Some(expires) = expires_after {
 }
 ```
 
-Update the inherent method and the trait `impl` (both `post_action` in `client.rs`) and every internal caller of `post_action` (e.g. `usdc_transfer`/`withdraw`/`spot_send`/`send_asset` in `hl-executor/src/executor/transfer.rs` and `approve_agent` in `admin.rs` call `self.client.post_action(...)` directly — pass `None` for `expires_after` unless they should honor it; see Task B4 note).
+Update the inherent method and the trait `impl` (both `post_action` in `client.rs`) **and every direct caller of `.post_action(...)`**. Run `grep -rn "post_action" crates/hl-executor/src/` — the full set of direct callers that bypass `send_signed_action` is **7** (all EIP-712 user-signed, so they pass `None`):
 
-- [ ] **Step 3:** Update `MockTransport::post_action` in `crates/hl-test-utils/src/lib.rs` to accept `expires_after: Option<u64>` and capture it (extend the request-capture added for the parity wire tests — e.g. record `(action, expires_after)` or fold expiry into the captured value).
+| File | Method → action |
+|---|---|
+| `transfer.rs` ×4 | `usdc_transfer`→usdSend, `withdraw`→withdraw3, `spot_send`→spotSend, `send_asset`→sendAsset |
+| `admin.rs` ×2 | `approve_agent`→approveAgent, **`approve_builder_fee`→approveBuilderFee** |
+| `sub_account.rs` ×1 | **`sub_account_transfer`→subAccountTransfer** |
+
+(The bolded two are easy to miss.) Plus `send_signed_action` in `mod.rs` (the L1 path — Task B4). Every one is a compile-breaking site once the trait param is required; pass `None` for all 7 direct user-signed callers.
+
+- [ ] **Step 3:** Update `MockTransport` in `crates/hl-test-utils/src/lib.rs`. **Do NOT change the existing `requests: Mutex<Vec<serde_json::Value>>` field or `last_request()`** — many wire-parity tests (in `orders.rs`, `transfer.rs`, `account/mod.rs`) read `last_request()` as a bare action `Value` and would break. Instead:
+  - Add a param `expires_after: Option<u64>` to `MockTransport::post_action`.
+  - Add a **separate** field `expires_after: Mutex<Vec<Option<u64>>>` and push the arg there in lockstep with the existing `requests.push(action)`.
+  - Add `pub fn last_expires_after(&self) -> Option<u64> { self.expires_after.lock().unwrap().last().copied().flatten() }` (note: `Vec<Option<u64>>::last()` is `Option<&Option<u64>>`, so `.copied().flatten()`).
 - [ ] **Step 4:** `cargo build --workspace --all-features` → green (every call site updated). **Commit.**
 
 ### Task B4: `OrderExecutor::set_expires_after` + thread through `send_signed_action`
 
 **File:** `crates/hl-executor/src/executor/mod.rs`.
 
-> **State representation:** store `expires_after: std::sync::atomic::AtomicU64` with **`0` = unset** (matches the existing lock-free `nonce: AtomicU64` field; an epoch-0 expiry is meaningless). The public API uses `Option<u64>`; `set_expires_after(Some(0))` maps to unset — document this. (If representing epoch-0 is ever needed, switch to `Mutex<Option<u64>>`.)
+> **State representation:** store `expires_after: std::sync::atomic::AtomicU64` with **`0` = unset` — the same lock-free `AtomicU64` type as the `nonce` field, but accessed with plain `store(Release)`/`load(Acquire)` (expiry is not monotonic, so no CAS like `next_nonce`). The public API uses `Option<u64>`; `set_expires_after(Some(0))` maps to unset (epoch-0-ms = 1970 is never a valid future expiry) — document this. Init the field in **both** constructors that build the struct directly — `new` and `with_meta_cache` (the `from_client*` constructors delegate). (If representing epoch-0 is ever needed, switch to `Mutex<Option<u64>>`.)
 
-- [ ] **Step 1: Failing test** (in executor tests, using the capturing `test_executor_capturing`):
+- [ ] **Step 1: Failing test** — place it in `crates/hl-executor/src/executor/orders.rs` `mod tests` (where `test_executor_capturing` and `ok_resting_response` are already in scope):
 
 ```rust
 #[tokio::test]
@@ -378,13 +426,37 @@ pub(crate) async fn send_signed_action(
 
 Update the `use hl_signing::...` import to bring in `sign_l1_action_with_expiry`.
 
-> **Note:** the user-signed actions (`usdSend`/`withdraw3`/`spotSend`/`sendAsset`/`approveAgent`) call `self.client.post_action(...)` directly, NOT through `send_signed_action`, and use EIP-712 (not L1) signing — `expiresAfter` does **not** apply to them in the Python SDK. Pass `None` for their `post_action` `expires_after` arg.
+> **Note:** all **7** direct `post_action` callers from the Task B3 table (the `transfer.rs`/`admin.rs`/`sub_account.rs` user-signed actions) use EIP-712 (not L1) signing and bypass `send_signed_action` — `expiresAfter` does **not** apply to them in the Python SDK. They keep their own signing; just pass `None` for the new `post_action` `expires_after` arg. Only `send_signed_action` (the L1 path) reads `self.expires_after()`.
 
-- [ ] **Step 4:** Add `last_expires_after()` to `MockTransport` (returns the captured expiry of the last action). `cargo test --workspace --all-features` → PASS. **Commit.**
+- [ ] **Step 4: Add the wire-contract + edge regression tests** (in the same `orders.rs mod tests`), then run:
+
+```rust
+#[tokio::test]
+async fn expires_after_omitted_from_signing_when_unset() {
+    let (executor, transport) = test_executor_capturing(vec![ok_resting_response(1)]);
+    // no set_expires_after call
+    let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1)).build().unwrap();
+    executor.place_order(order, None).await.unwrap();
+    assert_eq!(transport.last_expires_after(), None);
+}
+
+#[test]
+fn set_expires_after_zero_is_unset() {
+    let executor = test_executor(vec![]);
+    executor.set_expires_after(Some(0));
+    assert_eq!(executor.expires_after(), None);
+    executor.set_expires_after(Some(1_700_000_060_000));
+    assert_eq!(executor.expires_after(), Some(1_700_000_060_000));
+}
+```
+
+> **Body-shape test (integer, not string):** `MockTransport` only sees the inner `action`, so it can't observe the outer `expiresAfter` body field. Assert that contract with a focused test at the `hl-client` layer (or a serde unit test) that `post_action` with `Some(1_700_000_060_000)` puts `expiresAfter` in the payload as a JSON **integer** (`.is_u64()`, not a string) and that `None` omits the key entirely.
+
+`cargo test --workspace --all-features` → PASS. **Commit.**
 
 ### Task B5: Docs + changelog
 
-- [ ] Add a `set_expires_after` line to the CHANGELOG `[Unreleased]` (or the version being cut), and mention it in `skills/motosan-hyperliquid/references/execution.md`. **Commit.**
+- [ ] Add a `set_expires_after` entry under the **existing** CHANGELOG `[Unreleased] → Added` list (alongside builder codes / grouping), following the fold-into-0.2.0-vs-cut-0.3.0 rule already documented at the top of that section. Don't create a duplicate section. Mention it in `skills/motosan-hyperliquid/references/execution.md`. If `0.2.0` is by then published, also bump the version per the project Release checklist (CLAUDE.md). **Commit.**
 
 ---
 
@@ -395,4 +467,7 @@ Update the `use hl_signing::...` import to bring in `sign_l1_action_with_expiry`
 - [ ] `expiresAfter` is **top-level** in the POST body, never inside the `action` object.
 - [ ] Cross-language golden vector (Task A3) proves the signed bytes match the Python SDK.
 - [ ] wallet-core dep bumped and published **before** Part B; `cargo update -p motosan-wallet-core` run.
-- [ ] All `post_action` impls + call sites updated (trait, real client ×2, MockTransport, direct callers in transfer.rs/admin.rs).
+- [ ] All `post_action` impls + call sites updated: trait (`transport.rs`), `HyperliquidClient` ×2 (inherent + trait impl, `client.rs`), `MockTransport`, and **all 7** direct callers — `transfer.rs` ×4, `admin.rs` ×2 (incl. `approve_builder_fee`), `sub_account.rs` ×1 (`sub_account_transfer`) — each passing `None`.
+- [ ] `MockTransport.requests: Vec<Value>` type is **unchanged**; expiry captured in a separate `expires_after` side-vector (existing wire-parity tests still read `last_request()` as a bare action).
+- [ ] Golden-vector r/s are stored **zero-padded to 64 hex**; the generating Python SDK version is recorded.
+- [ ] `sign_l1_action_with_expiry` added to both `hl-signing` lib re-exports **and** the facade prelude.
