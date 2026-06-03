@@ -3081,9 +3081,9 @@ dependencies = [
 
 [[package]]
 name = "motosan-wallet-core"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47b5b14f377c63e8af8768f24419db435354c22e66d57692c41a0fe3a7c8f491"
+checksum = "df0ada09625f01cfea881f9da31f8f3f149e721048589f3dcfed275990587deb"
 dependencies = [
  "alloy",
  "eth-keystore",

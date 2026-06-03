@@ -39,7 +39,9 @@ pub use hl_executor::{
 // -- Signing -----------------------------------------------------------------
 
 #[cfg(feature = "signing")]
-pub use hl_signing::{sign_l1_action, sign_user_signed_action, PrivateKeySigner, Signer};
+pub use hl_signing::{
+    sign_l1_action, sign_l1_action_with_expiry, sign_user_signed_action, PrivateKeySigner, Signer,
+};
 
 // -- WebSocket ---------------------------------------------------------------
 

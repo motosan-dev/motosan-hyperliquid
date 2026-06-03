@@ -25,7 +25,10 @@ pub mod private_key;
 pub mod signer;
 
 pub use adapter::SingleAddressSigner;
-pub use eip712::{compute_action_hash, sign_l1_action, sign_user_signed_action, EIP712Field};
+pub use eip712::{
+    compute_action_hash, sign_l1_action, sign_l1_action_with_expiry, sign_user_signed_action,
+    EIP712Field,
+};
 #[cfg(feature = "k256-signer")]
 pub use private_key::PrivateKeySigner;
 pub use signer::Signer;

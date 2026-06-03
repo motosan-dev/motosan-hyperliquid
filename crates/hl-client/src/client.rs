@@ -237,27 +237,10 @@ impl HyperliquidClient {
         signature: &Signature,
         nonce: u64,
         vault_address: Option<&str>,
+        expires_after: Option<u64>,
     ) -> Result<serde_json::Value, HlError> {
-        let mut payload = serde_json::json!({
-            "action": action,
-            "nonce": nonce,
-            "signature": {
-                "r": signature.r,
-                "s": signature.s,
-                "v": signature.v,
-            },
-        });
-
-        if let Some(vault) = vault_address {
-            let obj = payload
-                .as_object_mut()
-                .ok_or_else(|| HlError::serialization("payload is not a JSON object"))?;
-            obj.insert(
-                "vaultAddress".to_string(),
-                serde_json::Value::String(vault.to_string()),
-            );
-        }
-
+        let payload =
+            build_exchange_payload(action, signature, nonce, vault_address, expires_after)?;
         let url = format!("{}/exchange", self.base_url);
         self.post_with_retry(&url, &payload).await
     }
@@ -419,6 +402,47 @@ impl HyperliquidClient {
     }
 }
 
+/// Build the `/exchange` request body from a signed action.
+///
+/// Layout matches the Hyperliquid API: `action`, `nonce`, `signature` are always
+/// present; `vaultAddress` and `expiresAfter` are top-level siblings included
+/// only when set. `expiresAfter` is a JSON **integer** (epoch ms); when set it is
+/// also folded into the signed action hash by the signing layer (the two must
+/// agree), and here it is emitted only when `Some` — so omitting it when `None`
+/// keeps the body byte-for-byte identical to a no-expiry action.
+fn build_exchange_payload(
+    action: serde_json::Value,
+    signature: &Signature,
+    nonce: u64,
+    vault_address: Option<&str>,
+    expires_after: Option<u64>,
+) -> Result<serde_json::Value, HlError> {
+    let mut payload = serde_json::json!({
+        "action": action,
+        "nonce": nonce,
+        "signature": {
+            "r": signature.r,
+            "s": signature.s,
+            "v": signature.v,
+        },
+    });
+    let obj = payload
+        .as_object_mut()
+        .ok_or_else(|| HlError::serialization("payload is not a JSON object"))?;
+
+    if let Some(vault) = vault_address {
+        obj.insert(
+            "vaultAddress".to_string(),
+            serde_json::Value::String(vault.to_string()),
+        );
+    }
+    if let Some(expires) = expires_after {
+        obj.insert("expiresAfter".to_string(), serde_json::Value::from(expires));
+    }
+
+    Ok(payload)
+}
+
 #[async_trait]
 impl HttpTransport for HyperliquidClient {
     async fn post_info(&self, request: serde_json::Value) -> Result<serde_json::Value, HlError> {
@@ -431,8 +455,9 @@ impl HttpTransport for HyperliquidClient {
         signature: &Signature,
         nonce: u64,
         vault_address: Option<&str>,
+        expires_after: Option<u64>,
     ) -> Result<serde_json::Value, HlError> {
-        self.post_action(action, signature, nonce, vault_address)
+        self.post_action(action, signature, nonce, vault_address, expires_after)
             .await
     }
 
@@ -572,5 +597,53 @@ mod tests {
         let token = client.shutdown_token();
         token.cancel();
         assert!(token.is_cancelled());
+    }
+
+    fn sig() -> Signature {
+        Signature::new("0x01".to_string(), "0x02".to_string(), 27)
+    }
+
+    #[test]
+    fn exchange_payload_expires_after_is_top_level_integer() {
+        let action = serde_json::json!({"type": "order"});
+        let p = build_exchange_payload(action, &sig(), 1, None, Some(1_700_000_060_000)).unwrap();
+        // Top-level sibling of `action`, not nested inside it.
+        assert!(p["action"].get("expiresAfter").is_none());
+        assert_eq!(p["expiresAfter"].as_u64(), Some(1_700_000_060_000));
+        // JSON integer, not a string.
+        assert!(p["expiresAfter"].is_u64());
+        assert!(p["expiresAfter"].as_str().is_none());
+        // Serializes unquoted.
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"expiresAfter\":1700000060000"), "got: {s}");
+    }
+
+    #[test]
+    fn exchange_payload_omits_expires_after_when_none() {
+        let action = serde_json::json!({"type": "order"});
+        let p = build_exchange_payload(action, &sig(), 1, None, None).unwrap();
+        assert!(p.get("expiresAfter").is_none());
+        // Body keys are exactly the legacy set (byte-identical to pre-expiry).
+        let keys: Vec<&String> = p.as_object().unwrap().keys().collect();
+        assert_eq!(keys, vec!["action", "nonce", "signature"]);
+    }
+
+    #[test]
+    fn exchange_payload_key_order_with_vault_and_expiry() {
+        let action = serde_json::json!({"type": "order"});
+        let p = build_exchange_payload(action, &sig(), 1, Some("0xVault"), Some(1_700_000_060_000))
+            .unwrap();
+        // vaultAddress precedes expiresAfter; both follow the always-present trio.
+        let keys: Vec<&String> = p.as_object().unwrap().keys().collect();
+        assert_eq!(
+            keys,
+            vec![
+                "action",
+                "nonce",
+                "signature",
+                "vaultAddress",
+                "expiresAfter"
+            ]
+        );
     }
 }

@@ -24,6 +24,10 @@ Parity features closing high-value gaps with the official Hyperliquid Python SDK
   conditions, TP/SL metadata, and children — new `HlFrontendOpenOrder` type),
   `order_status_by_cloid` (look up an order by client order id), and
   `fills_by_time(address, start_ms, end_ms, aggregate_by_time)` (time-ranged fills).
+- **Action expiry**: `OrderExecutor::set_expires_after(Some(epoch_ms))` folds an
+  `expiresAfter` timestamp into every subsequent signed L1 action (and the
+  `/exchange` body) so the exchange rejects stale/replayed actions; `None`
+  clears it. Requires `motosan-wallet-core` 0.5.3 (adds `sign_l1_action_with_expiry`).
 
 ### Fixed
 - **Vault transfer amount encoding**: `transfer_to_vault` now sends `usd` as an

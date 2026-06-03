@@ -23,6 +23,10 @@ pub struct MockTransport {
     /// query JSON for `post_info` and the `action` JSON for `post_action`. Used
     /// by tests to assert the exact outbound wire format.
     requests: Mutex<Vec<serde_json::Value>>,
+    /// The `expires_after` argument captured for each `post_action` call, in
+    /// lockstep with `requests` (the action object alone doesn't carry it — it's
+    /// a top-level body field). Lets tests assert the action-expiry threading.
+    expires_after: Mutex<Vec<Option<u64>>>,
     mainnet: bool,
 }
 
@@ -32,6 +36,7 @@ impl MockTransport {
         Self {
             responses: Mutex::new(responses),
             requests: Mutex::new(Vec::new()),
+            expires_after: Mutex::new(Vec::new()),
             mainnet: true,
         }
     }
@@ -46,6 +51,7 @@ impl MockTransport {
         Self {
             responses: Mutex::new(responses),
             requests: Mutex::new(Vec::new()),
+            expires_after: Mutex::new(Vec::new()),
             mainnet: false,
         }
     }
@@ -58,6 +64,11 @@ impl MockTransport {
     /// The most recent request body, if any.
     pub fn last_request(&self) -> Option<serde_json::Value> {
         self.requests.lock().unwrap().last().cloned()
+    }
+
+    /// The `expires_after` of the most recent `post_action` call, if any.
+    pub fn last_expires_after(&self) -> Option<u64> {
+        self.expires_after.lock().unwrap().last().copied().flatten()
     }
 }
 
@@ -78,8 +89,10 @@ impl HttpTransport for MockTransport {
         _signature: &Signature,
         _nonce: u64,
         _vault_address: Option<&str>,
+        expires_after: Option<u64>,
     ) -> Result<serde_json::Value, HlError> {
         self.requests.lock().unwrap().push(action);
+        self.expires_after.lock().unwrap().push(expires_after);
         let mut queue = self.responses.lock().unwrap();
         if queue.is_empty() {
             return Err(HlError::http("no mock responses"));

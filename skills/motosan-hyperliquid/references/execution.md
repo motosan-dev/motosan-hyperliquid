@@ -84,6 +84,26 @@ Pass a vault address (last argument) for vault-delegated trading:
 let response = executor.place_order(order, Some("0xVaultAddress")).await?;
 ```
 
+## Action Expiry (replay protection)
+
+`set_expires_after` attaches an `expiresAfter` timestamp (unix epoch **ms**) to every
+subsequent signed L1 action, so the exchange rejects it if processed after that time.
+It is folded into the signed action hash and sent in the `/exchange` body.
+
+```rust
+use std::time::{SystemTime, UNIX_EPOCH};
+
+let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+executor.set_expires_after(Some(now_ms + 60_000)); // valid for ~60s
+let response = executor.place_order(order, None).await?;
+
+executor.set_expires_after(None); // clear (default: no expiry)
+```
+
+Applies only to L1 actions (orders, cancels, leverage, vault transfers, …); EIP-712
+user-signed actions (`usdSend`/`withdraw`/`spotSend`/`sendAsset`/agent/builder/sub-account)
+are unaffected, matching the Python SDK.
+
 ## Position Reconciliation
 
 `reconcile_positions` is a free function (not a method) that compares your local

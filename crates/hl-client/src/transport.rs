@@ -20,12 +20,17 @@ pub trait HttpTransport: Send + Sync {
     async fn post_info(&self, request: serde_json::Value) -> Result<serde_json::Value, HlError>;
 
     /// POST a signed action to the `/exchange` endpoint.
+    ///
+    /// `expires_after` (unix epoch ms), when `Some`, is sent as a top-level
+    /// `expiresAfter` field and must already be folded into the signed action
+    /// hash; when `None` the field is omitted.
     async fn post_action(
         &self,
         action: serde_json::Value,
         signature: &Signature,
         nonce: u64,
         vault_address: Option<&str>,
+        expires_after: Option<u64>,
     ) -> Result<serde_json::Value, HlError>;
 
     /// Whether this transport targets mainnet (affects EIP-712 chain id).

@@ -73,10 +73,40 @@ pub fn sign_l1_action(
     is_mainnet: bool,
     vault_address: Option<&str>,
 ) -> Result<Signature, HlError> {
+    sign_l1_action_with_expiry(
+        signer,
+        address,
+        action,
+        nonce,
+        is_mainnet,
+        vault_address,
+        None,
+    )
+}
+
+/// Like [`sign_l1_action`] but folds an optional `expiresAfter` timestamp
+/// (unix epoch **milliseconds**) into the signed action hash, so the exchange
+/// rejects the action after that time. `None` ⇒ identical to [`sign_l1_action`].
+#[allow(clippy::too_many_arguments)]
+pub fn sign_l1_action_with_expiry(
+    signer: &dyn Signer,
+    address: &str,
+    action: &serde_json::Value,
+    nonce: u64,
+    is_mainnet: bool,
+    vault_address: Option<&str>,
+    expires_after: Option<u64>,
+) -> Result<Signature, HlError> {
     let adapter = SingleAddressSigner::new(signer, address.to_string());
-    let hl_sig =
-        motosan_wallet_core::sign_l1_action(&adapter, action, nonce, is_mainnet, vault_address)
-            .map_err(|e| HlError::signing(e.to_string()))?;
+    let hl_sig = motosan_wallet_core::sign_l1_action_with_expiry(
+        &adapter,
+        action,
+        nonce,
+        is_mainnet,
+        vault_address,
+        expires_after,
+    )
+    .map_err(|e| HlError::signing(e.to_string()))?;
     Ok(hl_signature_to_signature(&hl_sig))
 }
 
