@@ -5,24 +5,30 @@ description: Help developers use the motosan-hyperliquid SDK (Rust) — market d
 
 # motosan-hyperliquid SDK
 
-Modular Rust SDK for Hyperliquid L1 — v0.1.0
+Modular Rust SDK for Hyperliquid L1 — v0.2.0
 
-6 crates: `hl-types`, `hl-signing`, `hl-client`, `hl-market`, `hl-account`, `hl-executor`
+7 published crates: `hl-types`, `hl-signing`, `hl-client`, `hl-market`, `hl-account`, `hl-executor`,
+and the `motosan-hyperliquid` facade (single-crate entry point that re-exports the rest behind
+feature flags).
 
 ## Install
 
 ```toml
-# Cargo.toml — pick the crates you need
+# Option A — single facade crate (simplest)
 [dependencies]
-hl-client  = "0.1.0"    # HTTP + optional WebSocket
-hl-types   = "0.1.0"    # shared domain types
-hl-market  = "0.1.0"    # market data queries
-hl-account = "0.1.0"    # account state queries
-hl-signing = "0.1.0"    # EIP-712 signing
-hl-executor = "0.1.0"   # order execution
+motosan-hyperliquid = "0.2.0"                          # all sub-crates via the `full` feature
+
+# Option B — pick the crates you need
+[dependencies]
+hl-client  = "0.2.0"    # HTTP + optional WebSocket
+hl-types   = "0.2.0"    # shared domain types
+hl-market  = "0.2.0"    # market data queries
+hl-account = "0.2.0"    # account state queries
+hl-signing = "0.2.0"    # EIP-712 signing
+hl-executor = "0.2.0"   # order execution
 
 # Enable WebSocket
-hl-client = { version = "0.1.0", features = ["ws"] }
+hl-client = { version = "0.2.0", features = ["ws"] }
 ```
 
 ## Architecture

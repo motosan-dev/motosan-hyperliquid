@@ -10,6 +10,7 @@ Hyperliquid's API returns string-encoded numerics, uses a custom EIP-712 signing
 
 | Crate | Description |
 |-------|-------------|
+| [`motosan-hyperliquid`](crates/motosan-hyperliquid/) | Facade -- re-exports all sub-crates behind feature flags (`market`, `account`, `executor`, `signing`, `ws`, `full`). Single-crate entry point. |
 | [`hl-types`](crates/hl-types/) | Shared domain types -- orders, positions, candles, errors, signatures |
 | [`hl-signing`](crates/hl-signing/) | EIP-712 signing via the `Signer` trait, with a built-in `PrivateKeySigner` |
 | [`hl-client`](crates/hl-client/) | HTTP client with automatic retry, rate-limit handling, and optional WebSocket support |
@@ -142,6 +143,8 @@ use hl_client::HyperliquidClient;
 use hl_signing::PrivateKeySigner;
 use hl_executor::OrderExecutor;
 use hl_types::{OrderWire, Tif};
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 let client = HyperliquidClient::mainnet()?;
 let signer = PrivateKeySigner::from_hex("0xYourPrivateKey")?;
@@ -149,10 +152,11 @@ let address = signer.address().to_string();
 
 let executor = OrderExecutor::from_client(client, Box::new(signer), address).await?;
 
-let order = OrderWire::limit_buy(0, "90000.0", "0.001") // BTC index
+// limit_buy takes Decimal args; build() validates price/size > 0.
+let order = OrderWire::limit_buy(0, Decimal::from_str("90000.0")?, Decimal::from_str("0.001")?) // BTC index
     .tif(Tif::Gtc)
     .cloid(HyperliquidClient::generate_cloid())
-    .build();
+    .build()?;
 
 let response = executor.place_order(order, None).await?;
 println!("Order {}: status={}", response.order_id, response.status);

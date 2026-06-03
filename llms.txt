@@ -2,33 +2,38 @@
 
 > Modular Rust SDK for the Hyperliquid L1 exchange -- market data, account queries, EIP-712 signing, and order execution.
 
-- Rust 0.1.0
+- Rust 0.2.0
 - GitHub: https://github.com/motosan-dev/motosan-hyperliquid
-- crates.io: (not yet published)
+- crates.io: https://crates.io/crates/motosan-hyperliquid (7 published crates)
 
 ## Install
 
 ```toml
-# Cargo.toml — pick the crates you need
+# Option A — single facade crate (re-exports everything behind feature flags)
 [dependencies]
-hl-client  = { version = "0.1.0", features = [] }  # HTTP + optional WebSocket
-hl-types   = "0.1.0"                                # shared domain types
-hl-market  = "0.1.0"                                # market data queries
-hl-account = "0.1.0"                                # account state queries
-hl-signing = "0.1.0"                                # EIP-712 signing
-hl-executor = "0.1.0"                               # order execution
+motosan-hyperliquid = "0.2.0"                       # `full` feature by default
+
+# Option B — pick the crates you need
+[dependencies]
+hl-client  = { version = "0.2.0", features = [] }  # HTTP + optional WebSocket
+hl-types   = "0.2.0"                                # shared domain types
+hl-market  = "0.2.0"                                # market data queries
+hl-account = "0.2.0"                                # account state queries
+hl-signing = "0.2.0"                                # EIP-712 signing
+hl-executor = "0.2.0"                               # order execution
 ```
 
 Enable WebSocket support on `hl-client`:
 
 ```toml
-hl-client = { version = "0.1.0", features = ["ws"] }
+hl-client = { version = "0.2.0", features = ["ws"] }
 ```
 
 ## Crate Map
 
 | Crate | Description |
 |-------|-------------|
+| `motosan-hyperliquid` | Facade -- re-exports all sub-crates behind feature flags (`market`, `account`, `executor`, `signing`, `ws`, `full`). Single-crate entry point. |
 | `hl-types` | Shared domain types -- orders, positions, candles, errors, signatures. No network deps. |
 | `hl-signing` | EIP-712 signing via `Signer` trait, `PrivateKeySigner` impl |
 | `hl-client` | HTTP client with retry, rate-limit handling, optional WebSocket (`ws` feature) |
@@ -114,26 +119,24 @@ let fills = account.fills("0xYourAddress").await?;
 use hl_client::HyperliquidClient;
 use hl_signing::PrivateKeySigner;
 use hl_executor::OrderExecutor;
-use hl_types::{OrderWire, OrderTypeWire, LimitOrderType};
+use hl_types::{OrderWire, Tif};
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 let client = HyperliquidClient::mainnet()?;
 let signer = PrivateKeySigner::from_hex("0xYourPrivateKey")?;
 let address = signer.address().to_string();
 
-let executor = OrderExecutor::new(client, Box::new(signer), address).await?;
+let executor = OrderExecutor::from_client(client, Box::new(signer), address).await?;
 
-let order = OrderWire {
-    asset: 0,
-    is_buy: true,
-    limit_px: "90000.0".to_string(),
-    sz: "0.001".to_string(),
-    reduce_only: false,
-    order_type: OrderTypeWire {
-        limit: Some(LimitOrderType { tif: "Gtc".to_string() }),
-        trigger: None,
-    },
-    cloid: Some(HyperliquidClient::generate_cloid()),
-};
+// Resolve the asset index from the meta cache (or pass a known index).
+let btc_idx = executor.meta_cache().asset_index("BTC").expect("BTC in universe");
+
+// Decimal-accepting builder; build() validates price/size > 0.
+let order = OrderWire::limit_buy(btc_idx, Decimal::from_str("90000.0")?, Decimal::from_str("0.001")?)
+    .tif(Tif::Gtc)
+    .cloid(HyperliquidClient::generate_cloid())
+    .build()?;
 
 let response = executor.place_order(order, None).await?;
 ```
@@ -141,7 +144,7 @@ let response = executor.place_order(order, None).await?;
 ## WebSocket (opt-in)
 
 ```toml
-hl-client = { version = "0.1.0", features = ["ws"] }
+hl-client = { version = "0.2.0", features = ["ws"] }
 ```
 
 ```rust
@@ -185,13 +188,13 @@ match result {
 
 ## Release
 
-Rust workspace — all 6 crates share one version and are released together.
+Rust workspace — all 7 published crates share one version and are released together (the internal `hl-test-utils` crate is `publish = false`).
 
 ### Tag Convention
 
 | Tag format | Example | Registry |
 |------------|---------|----------|
-| `rust-vX.Y.Z` | `rust-v0.1.0` | crates.io |
+| `rust-vX.Y.Z` | `rust-v0.2.0` | crates.io |
 
 ### Release Steps
 
@@ -206,6 +209,8 @@ Rust workspace — all 6 crates share one version and are released together.
 #    - README.md — install section
 #    - llms.txt — header version, Install section
 #    - skills/motosan-hyperliquid/SKILL.md — header version, Install section
+#    - skills/motosan-hyperliquid/references/*.md — version pins + code examples
+#      (grep the tree for the previous version to catch them all)
 
 # 4. Commit
 git add Cargo.toml CHANGELOG.md README.md llms.txt skills/motosan-hyperliquid/SKILL.md
@@ -219,7 +224,7 @@ git push origin main rust-vX.Y.Z
 ### CI Pipeline
 
 Tag push triggers GitHub Actions:
-- **publish-rust.yml**: `cargo fmt --check` → `cargo clippy` → `cargo test --all-features` → `cargo publish -p hl-types` → … → `cargo publish -p hl-executor` (secret: `CARGO_REGISTRY_TOKEN`)
+- **publish-rust.yml**: `cargo fmt --check` → `cargo clippy` → `cargo test` → `cargo publish -p hl-types` → … → `cargo publish -p hl-executor` → `cargo publish -p motosan-hyperliquid` (secret: `CARGO_REGISTRY_TOKEN`). Each publish tolerates an "already exists" result but fails the job on any other error.
 
 Supports `workflow_dispatch` for manual trigger.
 
@@ -233,6 +238,7 @@ Crates must be published in dependency order:
 4. `hl-market`
 5. `hl-account`
 6. `hl-executor`
+7. `motosan-hyperliquid` (facade — must be last; depends on all the above)
 
 ### Emergency Manual Publish
 
@@ -242,5 +248,6 @@ cargo publish -p hl-signing && \
 cargo publish -p hl-client && \
 cargo publish -p hl-market && \
 cargo publish -p hl-account && \
-cargo publish -p hl-executor
+cargo publish -p hl-executor && \
+cargo publish -p motosan-hyperliquid
 ```

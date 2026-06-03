@@ -59,12 +59,15 @@ impl Signer for PrivateKeySigner {
     }
 }
 
-impl Drop for PrivateKeySigner {
-    fn drop(&mut self) {
-        // SigningKey::drop() zeros the secret scalar when k256's `zeroize`
-        // feature is enabled. No other secret material in this struct.
-    }
-}
+// Compile-time guarantee that the private key is wiped from memory on drop.
+// `k256::ecdsa::SigningKey` implements `zeroize::ZeroizeOnDrop` (its `Drop` impl
+// zeroes the secret scalar), so the `key` field's drop glue clears the key
+// material whenever a `PrivateKeySigner` is dropped; `address` holds no secret.
+// If a dependency change ever removed that guarantee, this would fail to build.
+const _: fn() = || {
+    fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+    assert_zeroize_on_drop::<SigningKey>();
+};
 
 #[cfg(test)]
 mod tests {
