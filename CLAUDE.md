@@ -11,7 +11,7 @@ cargo test --all-features -- --ignored               # Live integration tests (n
 
 ## Rules That Prevent Mistakes
 
-This is a Cargo workspace with 6 crates. All crates inherit `version`, `edition`, `license` from the workspace root `Cargo.toml`.
+This is a Cargo workspace with 8 crates: 7 are published to crates.io (`hl-types`, `hl-signing`, `hl-client`, `hl-market`, `hl-account`, `hl-executor`, and the `motosan-hyperliquid` facade), plus `hl-test-utils` which is internal (`publish = false`). All crates inherit `version`, `edition`, `license` from the workspace root `Cargo.toml`.
 
 Dependency graph is strict and layered — `hl-types` at the bottom, `hl-executor` at the top. Never introduce circular deps.
 
@@ -21,4 +21,4 @@ Coin symbols must be normalized before use (`"BTC-PERP"` → `"BTC"`). Use `norm
 
 ## Release Checklist
 
-See `@llms.txt` § Release for the full process. Files to update: `Cargo.toml` (workspace version), `CHANGELOG.md`, `README.md`, `llms.txt`, `skills/motosan-hyperliquid/SKILL.md`.
+See `@llms.txt` § Release for the full process. Files to update: `Cargo.toml` (workspace version), `CHANGELOG.md`, `README.md`, `llms.txt`, `skills/motosan-hyperliquid/SKILL.md`, and `skills/motosan-hyperliquid/references/*.md` (version pins and code examples — these rot easily, grep them for the old version).

@@ -2357,7 +2357,7 @@ dependencies = [
 
 [[package]]
 name = "hl-account"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2374,7 +2374,7 @@ dependencies = [
 
 [[package]]
 name = "hl-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2393,7 +2393,7 @@ dependencies = [
 
 [[package]]
 name = "hl-executor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2411,7 +2411,7 @@ dependencies = [
 
 [[package]]
 name = "hl-market"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2427,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "hl-signing"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "hl-types",
@@ -2443,7 +2443,7 @@ dependencies = [
 
 [[package]]
 name = "hl-test-utils"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "hl-client",
@@ -2455,7 +2455,7 @@ dependencies = [
 
 [[package]]
 name = "hl-types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "rust_decimal",
@@ -3067,7 +3067,7 @@ dependencies = [
 
 [[package]]
 name = "motosan-hyperliquid"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hl-account",
  "hl-client",

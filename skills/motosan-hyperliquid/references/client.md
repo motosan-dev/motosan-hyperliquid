@@ -48,7 +48,7 @@ let cloid = HyperliquidClient::generate_cloid();
 ## WebSocket (feature: `ws`)
 
 ```toml
-hl-client = { version = "0.1.0", features = ["ws"] }
+hl-client = { version = "0.2.0", features = ["ws"] }
 ```
 
 ```rust

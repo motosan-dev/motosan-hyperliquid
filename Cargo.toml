@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.91"
@@ -14,12 +14,12 @@ keywords = ["hyperliquid", "trading", "defi", "eip712", "dex"]
 categories = ["api-bindings", "cryptography"]
 
 [workspace.dependencies]
-hl-types = { path = "crates/hl-types", version = "0.1.0" }
-hl-signing = { path = "crates/hl-signing", version = "0.1.0" }
-hl-client = { path = "crates/hl-client", version = "0.1.0" }
-hl-market = { path = "crates/hl-market", version = "0.1.0" }
-hl-account = { path = "crates/hl-account", version = "0.1.0" }
-hl-executor = { path = "crates/hl-executor", version = "0.1.0" }
+hl-types = { path = "crates/hl-types", version = "0.2.0" }
+hl-signing = { path = "crates/hl-signing", version = "0.2.0" }
+hl-client = { path = "crates/hl-client", version = "0.2.0" }
+hl-market = { path = "crates/hl-market", version = "0.2.0" }
+hl-account = { path = "crates/hl-account", version = "0.2.0" }
+hl-executor = { path = "crates/hl-executor", version = "0.2.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "1"

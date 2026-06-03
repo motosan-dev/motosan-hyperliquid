@@ -35,16 +35,28 @@ jobs:
 
       - name: Publish crates
         run: |
-          cargo publish -p hl-types || true
-          sleep 30
-          cargo publish -p hl-signing || true
-          sleep 30
-          cargo publish -p hl-client || true
-          sleep 30
-          cargo publish -p hl-market || true
-          sleep 30
-          cargo publish -p hl-account || true
-          sleep 30
-          cargo publish -p hl-executor || true
-          sleep 30
-          cargo publish -p motosan-hyperliquid || true
+          set -euo pipefail
+          # Publish in dependency order. Tolerate an "already exists" result
+          # (idempotent re-runs / partial releases) but fail the job on any
+          # other error instead of silently swallowing it.
+          publish() {
+            local crate="$1"
+            local out
+            if out=$(cargo publish -p "$crate" 2>&1); then
+              echo "::notice::published $crate"
+            elif printf '%s' "$out" | grep -qE "already (exists|uploaded)"; then
+              echo "::notice::$crate already on crates.io — skipping"
+            else
+              printf '%s\n' "$out"
+              echo "::error::failed to publish $crate"
+              exit 1
+            fi
+          }
+          crates="hl-types hl-signing hl-client hl-market hl-account hl-executor motosan-hyperliquid"
+          for crate in $crates; do
+            publish "$crate"
+            if [ "$crate" != "motosan-hyperliquid" ]; then
+              echo "waiting for crates.io index propagation..."
+              sleep 30
+            fi
+          done
