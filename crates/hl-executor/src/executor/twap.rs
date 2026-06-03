@@ -34,13 +34,24 @@ impl OrderExecutor {
         vault: Option<&str>,
     ) -> Result<HlActionResponse, HlError> {
         let asset = self.resolve_asset(symbol)?;
+        let coin = super::normalize_symbol(symbol);
+        let sz_decimals = self
+            .meta_cache
+            .sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
+        let size = super::orders::round_size(size, sz_decimals);
+        if size <= Decimal::ZERO {
+            return Err(HlError::Validation(
+                "twap size rounds to zero at szDecimals".into(),
+            ));
+        }
 
         let action = serde_json::json!({
             "type": "twapOrder",
             "twap": {
                 "a": asset,
                 "b": is_buy,
-                "s": size.to_string(),
+                "s": size.normalize().to_string(),
                 "r": reduce_only,
                 "m": duration_secs,
                 "t": randomize,
@@ -130,5 +141,18 @@ mod tests {
         let executor = test_executor(vec![]);
         let result = executor.cancel_twap("NOSUCHCOIN", 42, None).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn place_twap_order_rejects_zero_size() {
+        let executor = test_executor(vec![]);
+        // 0.000001 truncates to 0 at BTC szDecimals=5 -> rejected before submit.
+        let result = executor
+            .place_twap_order("BTC", true, Decimal::new(1, 6), 3600, false, true, None)
+            .await;
+        assert!(
+            result.is_err(),
+            "twap size rounding to zero must be rejected"
+        );
     }
 }

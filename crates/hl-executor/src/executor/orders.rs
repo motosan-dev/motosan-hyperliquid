@@ -7,20 +7,28 @@ use hl_types::{HlError, OrderResponse, OrderStatus, OrderWire, Side, Tif, Tpsl};
 use super::response::{parse_bulk_order_response_with_fallbacks, parse_order_response};
 use super::{OrderExecutor, FILL_THRESHOLD};
 
-/// Round a **perp** price to Hyperliquid's rule: at most 5 significant figures
-/// AND at most `6 - sz_decimals` decimal places. Integer prices are returned
+/// Round a price to Hyperliquid's rule: at most 5 significant figures AND at
+/// most `max_decimals - sz_decimals` decimal places. Integer prices are returned
 /// unchanged — Hyperliquid allows them regardless of significant figures.
-///
-/// The `6` is the perp `MAX_DECIMALS`; spot uses `8 - sz_decimals`. Safe today
-/// because the meta cache only loads the perp universe.
-pub(crate) fn round_price_perp(px: Decimal, sz_decimals: u32) -> Decimal {
-    let max_dp = 6u32.saturating_sub(sz_decimals);
+/// `max_decimals` is 6 for perps and 8 for spot.
+fn round_price(px: Decimal, sz_decimals: u32, max_decimals: u32) -> Decimal {
+    let max_dp = max_decimals.saturating_sub(sz_decimals);
     let sf = if px.fract() == Decimal::ZERO {
         px
     } else {
         px.round_sf(5).unwrap_or(px)
     };
     sf.round_dp(max_dp)
+}
+
+/// Round a **perp** price (`MAX_DECIMALS = 6`). See [`round_price`].
+pub(crate) fn round_price_perp(px: Decimal, sz_decimals: u32) -> Decimal {
+    round_price(px, sz_decimals, 6)
+}
+
+/// Round a **spot** price (`MAX_DECIMALS = 8`). See [`round_price`].
+pub(crate) fn round_price_spot(px: Decimal, sz_decimals: u32) -> Decimal {
+    round_price(px, sz_decimals, 8)
 }
 
 /// Round an order size down (toward zero) to the asset's `szDecimals`.
@@ -484,6 +492,25 @@ mod tests {
         assert_eq!(
             round_price_perp(Decimal::from_str("123456.7").unwrap(), 0),
             Decimal::from(123460)
+        );
+    }
+
+    #[test]
+    fn round_price_spot_uses_8_max_decimals() {
+        // Spot allows MAX_DECIMALS = 8 vs perp's 6, so it keeps more decimals at
+        // the same szDecimals (both still cap at 5 significant figures).
+        assert_eq!(
+            round_price_perp(Decimal::from_str("0.00012345678").unwrap(), 0),
+            Decimal::from_str("0.000123").unwrap()
+        );
+        assert_eq!(
+            round_price_spot(Decimal::from_str("0.00012345678").unwrap(), 0),
+            Decimal::from_str("0.00012346").unwrap()
+        );
+        // Integers pass through for spot too.
+        assert_eq!(
+            round_price_spot(Decimal::from(123456), 0),
+            Decimal::from(123456)
         );
     }
 

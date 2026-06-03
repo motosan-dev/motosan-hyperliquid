@@ -16,7 +16,8 @@ impl OrderExecutor {
     ///
     /// * `symbol` — Market symbol (e.g. `"BTC"`, `"ETH-PERP"`).
     /// * `is_buy` — `true` for buy orders, `false` for sell orders.
-    /// * `total_size` — Total position size to distribute across all orders.
+    /// * `total_size` — Total size to distribute. Each order's size is floored to
+    ///   the asset's `szDecimals`, so the executed total may be slightly less.
     /// * `price_low` — Lowest price in the range (inclusive).
     /// * `price_high` — Highest price in the range (inclusive).
     /// * `num_orders` — Number of orders to generate (must be >= 2).
@@ -26,7 +27,9 @@ impl OrderExecutor {
     /// # Errors
     ///
     /// Returns [`HlError::Validation`] if inputs are invalid (e.g. `num_orders < 2`,
-    /// `price_low >= price_high`, `total_size <= 0`).
+    /// `price_low >= price_high`, `total_size <= 0`), if the per-order size rounds
+    /// to zero at the asset's `szDecimals`, or if the price band is too narrow for
+    /// `num_orders` at the asset's tick size (rounded rungs would collide).
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip(self))]
     pub async fn place_scale_order(
@@ -56,12 +59,36 @@ impl OrderExecutor {
         }
 
         let asset_idx = self.resolve_asset(symbol)?;
-        let size_per_order = total_size / Decimal::from(num_orders);
+        let coin = super::normalize_symbol(symbol);
+        let sz_decimals = self
+            .meta_cache
+            .sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
+        let size_per_order =
+            super::orders::round_size(total_size / Decimal::from(num_orders), sz_decimals);
+        if size_per_order <= Decimal::ZERO {
+            return Err(HlError::Validation(
+                "scale size_per_order rounds to zero at this asset's szDecimals".into(),
+            ));
+        }
         let price_step = (price_high - price_low) / Decimal::from(num_orders - 1);
 
         let mut orders = Vec::with_capacity(num_orders as usize);
+        let mut prev_price: Option<Decimal> = None;
         for i in 0..num_orders {
-            let price = price_low + price_step * Decimal::from(i);
+            let price = super::orders::round_price_perp(
+                price_low + price_step * Decimal::from(i),
+                sz_decimals,
+            );
+            // Rungs are monotonic pre-rounding, so a repeat means the band is too
+            // narrow for num_orders at this asset's tick size and the ladder has
+            // collapsed onto fewer distinct prices than requested.
+            if prev_price == Some(price) {
+                return Err(HlError::Validation(
+                    "price band too narrow for num_orders at this asset's tick size".into(),
+                ));
+            }
+            prev_price = Some(price);
             let builder = if is_buy {
                 OrderWire::limit_buy(asset_idx, price, size_per_order)
             } else {
@@ -175,5 +202,44 @@ mod tests {
         if let OrderTypeWire::Limit(ref l) = order.order_type {
             assert_eq!(l.tif, Tif::Alo);
         }
+    }
+
+    #[tokio::test]
+    async fn place_scale_order_rejects_zero_size_per_order() {
+        let ex = hl_test_utils::test_executor(vec![]);
+        // 0.00001 / 10 = 0.000001 truncates to 0 at BTC szDecimals=5.
+        let res = ex
+            .place_scale_order(
+                "BTC",
+                true,
+                Decimal::from_str("0.00001").unwrap(),
+                Decimal::from(100),
+                Decimal::from(200),
+                10,
+                Tif::Gtc,
+                None,
+            )
+            .await;
+        assert!(res.is_err(), "zero per-order size must be rejected");
+    }
+
+    #[tokio::test]
+    async fn place_scale_order_rejects_collapsed_ladder() {
+        let ex = hl_test_utils::test_executor(vec![]);
+        // BTC szDecimals=5 -> price max_dp = 1; a 100.00..100.05 band over 20
+        // orders rounds every rung to 100.0, collapsing the ladder.
+        let res = ex
+            .place_scale_order(
+                "BTC",
+                true,
+                Decimal::from(1),
+                Decimal::from_str("100.00").unwrap(),
+                Decimal::from_str("100.05").unwrap(),
+                20,
+                Tif::Gtc,
+                None,
+            )
+            .await;
+        assert!(res.is_err(), "collapsed ladder must be rejected");
     }
 }

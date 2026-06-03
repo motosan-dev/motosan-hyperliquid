@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 
 use hl_types::{HlActionResponse, HlError, OrderResponse, OrderWire, Side, Tif};
 
-use super::orders::extract_mid_price;
+use super::orders::{extract_mid_price, round_price_spot, round_size};
 use super::OrderExecutor;
 
 impl OrderExecutor {
@@ -58,6 +58,14 @@ impl OrderExecutor {
             mid * (Decimal::ONE - slippage)
         };
 
+        // Spot uses MAX_DECIMALS = 8 (perps use 6) and its own szDecimals.
+        let sz_decimals = self
+            .meta_cache
+            .spot_sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("spot szDecimals not found for '{}'", coin)))?;
+        let limit_price = round_price_spot(limit_price, sz_decimals);
+        let size = round_size(size, sz_decimals);
+
         let order = if side.is_buy() {
             OrderWire::limit_buy(asset_idx, limit_price, size)
         } else {
@@ -107,12 +115,10 @@ mod tests {
         let mut spot_idx = std::collections::HashMap::new();
         spot_idx.insert("PURR".to_string(), 10000u32);
         spot_idx.insert("USDC".to_string(), 10001u32);
-        let cache = AssetMetaCache::from_maps_with_spot(
-            perp_idx,
-            Default::default(),
-            spot_idx,
-            Default::default(),
-        );
+        let mut spot_sz = std::collections::HashMap::new();
+        spot_sz.insert("PURR".to_string(), 2u32);
+        let cache =
+            AssetMetaCache::from_maps_with_spot(perp_idx, Default::default(), spot_idx, spot_sz);
         OrderExecutor::with_meta_cache(
             Arc::new(hl_test_utils::MockTransport::new(responses)),
             hl_test_utils::test_signer(),
@@ -157,5 +163,26 @@ mod tests {
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn spot_market_open_uses_spot_rounding() {
+        // l2Book mid (1.234567) then an ok order response. PURR szDecimals=2 ->
+        // spot max_dp = 8 - 2 = 6, so the slippage price rounds with the spot rule.
+        let l2 = serde_json::json!({
+            "levels": [
+                [{"px": "1.234567", "sz": "1", "n": 1}],
+                [{"px": "1.234567", "sz": "1", "n": 1}]
+            ]
+        });
+        let executor = test_executor_with_spot(vec![l2, ok_resting_response(7)]);
+        let result = executor
+            .spot_market_open("PURR", Side::Buy, Decimal::from(10), None, None)
+            .await;
+        assert!(
+            result.is_ok(),
+            "spot_market_open should succeed: {result:?}"
+        );
+        assert_eq!(result.unwrap().order_id, "7");
     }
 }
