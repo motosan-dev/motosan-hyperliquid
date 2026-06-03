@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rust_decimal::Decimal;
 
 use hl_client::HttpTransport;
-use hl_signing::{sign_l1_action, Signer};
+use hl_signing::{sign_l1_action_with_expiry, Signer};
 use hl_types::{normalize_coin, HlActionResponse, HlError};
 
 use crate::meta_cache::AssetMetaCache;
@@ -83,6 +83,10 @@ pub struct OrderExecutor {
     /// nonces across multiple executors, they can wrap this in an
     /// `Arc<AtomicU64>` externally.
     pub(crate) nonce: AtomicU64,
+    /// Optional `expiresAfter` timestamp (unix epoch **milliseconds**) folded
+    /// into every signed L1 action so the exchange rejects it after that time.
+    /// `0` means unset. Set/cleared via [`Self::set_expires_after`].
+    pub(crate) expires_after: AtomicU64,
 }
 
 impl OrderExecutor {
@@ -99,6 +103,7 @@ impl OrderExecutor {
             address,
             meta_cache,
             nonce: AtomicU64::new(0),
+            expires_after: AtomicU64::new(0),
         })
     }
 
@@ -124,6 +129,7 @@ impl OrderExecutor {
             address,
             meta_cache,
             nonce: AtomicU64::new(0),
+            expires_after: AtomicU64::new(0),
         }
     }
 
@@ -176,17 +182,19 @@ impl OrderExecutor {
         vault: Option<&str>,
     ) -> Result<serde_json::Value, HlError> {
         let nonce = self.next_nonce();
-        let signature = sign_l1_action(
+        let expires_after = self.expires_after();
+        let signature = sign_l1_action_with_expiry(
             self.signer.as_ref(),
             &self.address,
             &action,
             nonce,
             self.client.is_mainnet(),
             vault,
+            expires_after,
         )?;
         let result = self
             .client
-            .post_action(action, &signature, nonce, vault)
+            .post_action(action, &signature, nonce, vault, expires_after)
             .await?;
 
         let api_status = result
@@ -259,5 +267,23 @@ impl OrderExecutor {
     /// Borrow the asset meta cache.
     pub fn meta_cache(&self) -> &AssetMetaCache {
         &self.meta_cache
+    }
+
+    /// Set (or clear, with `None`) an `expiresAfter` timestamp (unix epoch
+    /// **milliseconds**) applied to every subsequent signed L1 action — the
+    /// exchange rejects the action if processed after this time.
+    ///
+    /// `Some(0)` is treated as unset (epoch-0 is never a valid future expiry).
+    pub fn set_expires_after(&self, expires_after: Option<u64>) {
+        self.expires_after
+            .store(expires_after.unwrap_or(0), Ordering::Release);
+    }
+
+    /// The currently configured `expiresAfter` (epoch ms), if any.
+    pub fn expires_after(&self) -> Option<u64> {
+        match self.expires_after.load(Ordering::Acquire) {
+            0 => None,
+            ts => Some(ts),
+        }
     }
 }

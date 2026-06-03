@@ -1028,6 +1028,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_expires_after_threads_into_post_action() {
+        let (executor, transport) = test_executor_capturing(vec![ok_resting_response(1)]);
+        executor.set_expires_after(Some(1_700_000_060_000));
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        executor.place_order(order, None).await.unwrap();
+        assert_eq!(transport.last_expires_after(), Some(1_700_000_060_000));
+    }
+
+    #[tokio::test]
+    async fn expires_after_omitted_when_unset() {
+        let (executor, transport) = test_executor_capturing(vec![ok_resting_response(1)]);
+        // no set_expires_after call
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        executor.place_order(order, None).await.unwrap();
+        assert_eq!(transport.last_expires_after(), None);
+    }
+
+    #[test]
+    fn set_expires_after_zero_is_unset() {
+        let executor = test_executor(vec![]);
+        executor.set_expires_after(Some(0));
+        assert_eq!(executor.expires_after(), None);
+        executor.set_expires_after(Some(1_700_000_060_000));
+        assert_eq!(executor.expires_after(), Some(1_700_000_060_000));
+        executor.set_expires_after(None);
+        assert_eq!(executor.expires_after(), None);
+    }
+
+    #[tokio::test]
     async fn market_open_buy() {
         // First response: l2Book (post_info) for mid-price extraction
         let l2book = serde_json::json!({
