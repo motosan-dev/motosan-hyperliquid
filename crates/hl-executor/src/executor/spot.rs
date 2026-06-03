@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 
 use hl_types::{HlActionResponse, HlError, OrderResponse, OrderWire, Side, Tif};
 
-use super::orders::extract_mid_price;
+use super::orders::{extract_mid_price, round_price_spot, round_size};
 use super::OrderExecutor;
 
 impl OrderExecutor {
@@ -57,6 +57,14 @@ impl OrderExecutor {
         } else {
             mid * (Decimal::ONE - slippage)
         };
+
+        // Spot uses MAX_DECIMALS = 8 (perps use 6) and its own szDecimals.
+        let sz_decimals = self
+            .meta_cache
+            .spot_sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("spot szDecimals not found for '{}'", coin)))?;
+        let limit_price = round_price_spot(limit_price, sz_decimals);
+        let size = round_size(size, sz_decimals);
 
         let order = if side.is_buy() {
             OrderWire::limit_buy(asset_idx, limit_price, size)

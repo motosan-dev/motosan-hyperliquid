@@ -56,12 +56,21 @@ impl OrderExecutor {
         }
 
         let asset_idx = self.resolve_asset(symbol)?;
-        let size_per_order = total_size / Decimal::from(num_orders);
+        let coin = super::normalize_symbol(symbol);
+        let sz_decimals = self
+            .meta_cache
+            .sz_decimals(&coin)
+            .ok_or_else(|| HlError::Parse(format!("szDecimals not found for '{}'", coin)))?;
+        let size_per_order =
+            super::orders::round_size(total_size / Decimal::from(num_orders), sz_decimals);
         let price_step = (price_high - price_low) / Decimal::from(num_orders - 1);
 
         let mut orders = Vec::with_capacity(num_orders as usize);
         for i in 0..num_orders {
-            let price = price_low + price_step * Decimal::from(i);
+            let price = super::orders::round_price_perp(
+                price_low + price_step * Decimal::from(i),
+                sz_decimals,
+            );
             let builder = if is_buy {
                 OrderWire::limit_buy(asset_idx, price, size_per_order)
             } else {
