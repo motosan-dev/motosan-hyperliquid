@@ -2,10 +2,10 @@ use std::str::FromStr;
 
 use rust_decimal::{Decimal, RoundingStrategy};
 
-use hl_types::{HlError, OrderResponse, OrderStatus, OrderWire, Side, Tif, Tpsl};
+use hl_types::{Grouping, HlError, OrderResponse, OrderStatus, OrderWire, Side, Tif, Tpsl};
 
 use super::response::{parse_bulk_order_response_with_fallbacks, parse_order_response};
-use super::{OrderExecutor, FILL_THRESHOLD};
+use super::{validate_eth_address, OrderExecutor, FILL_THRESHOLD};
 
 /// Round a price to Hyperliquid's rule: at most 5 significant figures AND at
 /// most `max_decimals - sz_decimals` decimal places. Integer prices are returned
@@ -100,6 +100,25 @@ pub(crate) fn order_to_json(order: &OrderWire) -> Result<serde_json::Value, HlEr
     Ok(order_json)
 }
 
+/// Build the optional `builder` sub-object for an `order` action:
+/// `{"b": <lowercased address>, "f": <fee>}`. `fee` is in **tenths of a basis
+/// point** (`f = 10` ⇒ 1 bp ⇒ 0.01%) and is emitted as a JSON integer, matching
+/// the Python SDK's `BuilderInfo`. The address is validated and lowercased so
+/// the signed msgpack bytes match the canonical wire. Returns `Ok(None)` when no
+/// builder is supplied (the action then omits the `builder` key entirely).
+fn builder_to_json(builder: Option<(&str, u32)>) -> Result<Option<serde_json::Value>, HlError> {
+    match builder {
+        Some((address, fee)) => {
+            validate_eth_address(address)?;
+            Ok(Some(serde_json::json!({
+                "b": address.to_lowercase(),
+                "f": fee,
+            })))
+        }
+        None => Ok(None),
+    }
+}
+
 /// Determine the order status from fill information.
 pub(crate) fn determine_status(
     fill_size: Decimal,
@@ -127,10 +146,26 @@ impl OrderExecutor {
     /// The `OrderWire` must already have the asset index, price, size, order
     /// type, etc. fully populated. This method constructs the action JSON,
     /// signs it, submits it, and parses the response.
-    #[tracing::instrument(skip(self, order), fields(asset = order.asset, is_buy = order.is_buy))]
     pub async fn place_order(
         &self,
+        order: OrderWire,
+        vault: Option<&str>,
+    ) -> Result<OrderResponse, HlError> {
+        self.place_order_with_builder(order, None, vault).await
+    }
+
+    /// Like [`Self::place_order`] but attaches a builder code to the order
+    /// action so a builder earns the configured fee on the fill.
+    ///
+    /// `builder` is `(address, fee)` where `fee` is in **tenths of a basis
+    /// point** (`10` ⇒ 1 bp ⇒ 0.01%) and must be ≤ the `maxFeeRate` the user
+    /// previously authorized via [`Self::approve_builder_fee`]. Passing `None`
+    /// produces the identical wire to [`Self::place_order`].
+    #[tracing::instrument(skip(self, order), fields(asset = order.asset, is_buy = order.is_buy))]
+    pub async fn place_order_with_builder(
+        &self,
         mut order: OrderWire,
+        builder: Option<(&str, u32)>,
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
         ensure_cloid(&mut order);
@@ -140,11 +175,16 @@ impl OrderExecutor {
 
         let order_json = order_to_json(&order)?;
 
-        let action = serde_json::json!({
+        let mut action = serde_json::json!({
             "type": "order",
             "orders": [order_json],
             "grouping": "na"
         });
+        // `builder` must be inserted LAST (after type/orders/grouping) to match
+        // the Python SDK's msgpack key order, which the action hash depends on.
+        if let Some(builder_json) = builder_to_json(builder)? {
+            action["builder"] = builder_json;
+        }
 
         let result = self.send_signed_action(action, vault).await?;
 
@@ -171,7 +211,6 @@ impl OrderExecutor {
     /// `side` indicates the order direction (opposite of position side).
     /// `tpsl` indicates whether this is a stop-loss or take-profit trigger.
     /// The order fires as a market order when the trigger price is hit.
-    #[tracing::instrument(skip(self))]
     pub async fn place_trigger_order(
         &self,
         symbol: &str,
@@ -179,6 +218,24 @@ impl OrderExecutor {
         size: Decimal,
         trigger_price: Decimal,
         tpsl: Tpsl,
+        vault: Option<&str>,
+    ) -> Result<OrderResponse, HlError> {
+        self.place_trigger_order_with_builder(symbol, side, size, trigger_price, tpsl, None, vault)
+            .await
+    }
+
+    /// Like [`Self::place_trigger_order`] but attaches a builder code
+    /// `(address, fee)` (fee in tenths of a basis point) to the order action.
+    #[tracing::instrument(skip(self))]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn place_trigger_order_with_builder(
+        &self,
+        symbol: &str,
+        side: Side,
+        size: Decimal,
+        trigger_price: Decimal,
+        tpsl: Tpsl,
+        builder: Option<(&str, u32)>,
         vault: Option<&str>,
     ) -> Result<OrderResponse, HlError> {
         let asset_idx = self.resolve_asset(symbol)?;
@@ -200,11 +257,14 @@ impl OrderExecutor {
         .cloid(new_cloid())
         .build()?;
 
-        let action = serde_json::json!({
+        let mut action = serde_json::json!({
             "type": "order",
             "orders": [order_to_json(&order)?],
             "grouping": "na"
         });
+        if let Some(builder_json) = builder_to_json(builder)? {
+            action["builder"] = builder_json;
+        }
 
         tracing::debug!(
             symbol = %symbol,
@@ -250,10 +310,49 @@ impl OrderExecutor {
     }
 
     /// Place multiple orders in a single signed action.
-    #[tracing::instrument(skip(self, orders), fields(count = orders.len()))]
     pub async fn bulk_order(
         &self,
+        orders: Vec<OrderWire>,
+        vault: Option<&str>,
+    ) -> Result<Vec<OrderResponse>, HlError> {
+        self.bulk_order_inner(orders, Grouping::Na, None, vault)
+            .await
+    }
+
+    /// Place multiple orders with an explicit [`Grouping`] — e.g. an OCO TP/SL
+    /// bracket via [`Grouping::NormalTpsl`].
+    ///
+    /// The orders are sent in the order given; this method does **not** reorder
+    /// or auto-construct the bracket. For `NormalTpsl` the parent entry order
+    /// must be at index 0, followed by its (reduce-only, opposite-side) TP/SL
+    /// children — the caller is responsible for that, matching the Python SDK.
+    pub async fn bulk_order_grouped(
+        &self,
+        orders: Vec<OrderWire>,
+        grouping: Grouping,
+        vault: Option<&str>,
+    ) -> Result<Vec<OrderResponse>, HlError> {
+        self.bulk_order_inner(orders, grouping, None, vault).await
+    }
+
+    /// Place multiple orders, attaching a builder code `(address, fee)` (fee in
+    /// tenths of a basis point) to the action.
+    pub async fn bulk_order_with_builder(
+        &self,
+        orders: Vec<OrderWire>,
+        builder: Option<(&str, u32)>,
+        vault: Option<&str>,
+    ) -> Result<Vec<OrderResponse>, HlError> {
+        self.bulk_order_inner(orders, Grouping::Na, builder, vault)
+            .await
+    }
+
+    #[tracing::instrument(skip(self, orders), fields(count = orders.len(), grouping = grouping.as_str()))]
+    async fn bulk_order_inner(
+        &self,
         mut orders: Vec<OrderWire>,
+        grouping: Grouping,
+        builder: Option<(&str, u32)>,
         vault: Option<&str>,
     ) -> Result<Vec<OrderResponse>, HlError> {
         if orders.is_empty() {
@@ -275,11 +374,14 @@ impl OrderExecutor {
             ));
         }
 
-        let action = serde_json::json!({
+        let mut action = serde_json::json!({
             "type": "order",
             "orders": order_jsons,
-            "grouping": "na"
+            "grouping": grouping.as_str()
         });
+        if let Some(builder_json) = builder_to_json(builder)? {
+            action["builder"] = builder_json;
+        }
 
         let result = self.send_signed_action(action, vault).await?;
 
@@ -614,6 +716,71 @@ mod tests {
     }
 
     #[test]
+    fn builder_to_json_lowercases_and_emits_integer_fee() {
+        let j = builder_to_json(Some(("0x00000000000000000000000000000000000000AB", 10)))
+            .unwrap()
+            .unwrap();
+        // Address lowercased to match the canonical signed bytes.
+        assert_eq!(
+            j["b"].as_str(),
+            Some("0x00000000000000000000000000000000000000ab")
+        );
+        // Fee is a JSON integer (not a string) — msgpack type matters for the hash.
+        assert_eq!(j["f"].as_u64(), Some(10));
+        assert_eq!(j["f"].as_str(), None);
+    }
+
+    #[test]
+    fn builder_to_json_none_is_none() {
+        assert!(builder_to_json(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn builder_to_json_rejects_bad_address() {
+        assert!(matches!(
+            builder_to_json(Some(("0x1234", 5))),
+            Err(HlError::InvalidAddress(_))
+        ));
+    }
+
+    #[test]
+    fn grouping_action_json_shape() {
+        // Mirror how bulk_order_inner builds the action: parent + TP + SL.
+        let parent = OrderWire::limit_buy(1, Decimal::from(3000), Decimal::from(1))
+            .build()
+            .unwrap();
+        let tp = OrderWire::trigger_sell(1, Decimal::from(3300), Decimal::from(1), Tpsl::Tp)
+            .reduce_only(true)
+            .build()
+            .unwrap();
+        let sl = OrderWire::trigger_sell(1, Decimal::from(2700), Decimal::from(1), Tpsl::Sl)
+            .reduce_only(true)
+            .build()
+            .unwrap();
+        let orders = [parent, tp, sl];
+        let order_jsons: Vec<_> = orders.iter().map(|o| order_to_json(o).unwrap()).collect();
+        let action = serde_json::json!({
+            "type": "order",
+            "orders": order_jsons,
+            "grouping": Grouping::NormalTpsl.as_str()
+        });
+        assert_eq!(action["grouping"].as_str(), Some("normalTpsl"));
+        assert_eq!(action["orders"].as_array().unwrap().len(), 3);
+        assert_eq!(action["orders"][0]["r"].as_bool(), Some(false));
+        assert_eq!(action["orders"][1]["r"].as_bool(), Some(true));
+        assert_eq!(
+            action["orders"][1]["t"]["trigger"]["tpsl"].as_str(),
+            Some("tp")
+        );
+        assert_eq!(
+            action["orders"][2]["t"]["trigger"]["tpsl"].as_str(),
+            Some("sl")
+        );
+        // No builder key when none supplied.
+        assert!(action.get("builder").is_none());
+    }
+
+    #[test]
     fn determine_status_boundaries() {
         let req = Decimal::from(100);
         assert_eq!(determine_status(req, req, "x"), OrderStatus::Filled);
@@ -634,7 +801,7 @@ mod tests {
 
     // ── Mock-based integration tests ───────────────────────────
 
-    use hl_test_utils::test_executor;
+    use hl_test_utils::{test_executor, test_executor_capturing};
 
     /// Canned "ok" response with a single resting order status.
     fn ok_resting_response(oid: u64) -> serde_json::Value {
@@ -752,6 +919,112 @@ mod tests {
         assert_eq!(resps[1].order_id, "200");
         assert_eq!(resps[1].status, OrderStatus::Filled);
         assert_eq!(resps[1].filled_size, Decimal::from_str("2.0").unwrap());
+    }
+
+    #[tokio::test]
+    async fn place_order_with_builder_accepts_and_parses() {
+        let executor = test_executor(vec![ok_resting_response(123)]);
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        let resp = executor
+            .place_order_with_builder(
+                order,
+                Some(("0x000000000000000000000000000000000000007a", 10)),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.order_id, "123");
+    }
+
+    #[tokio::test]
+    async fn bulk_order_grouped_threads_grouping() {
+        let canned = serde_json::json!({
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [
+                        {"resting": {"oid": 100}},
+                        {"resting": {"oid": 101}}
+                    ]
+                }
+            }
+        });
+        let executor = test_executor(vec![canned]);
+        let parent = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        let sl = OrderWire::trigger_sell(0, Decimal::from(85000), Decimal::from(1), Tpsl::Sl)
+            .reduce_only(true)
+            .build()
+            .unwrap();
+        let resps = executor
+            .bulk_order_grouped(vec![parent, sl], Grouping::NormalTpsl, None)
+            .await
+            .unwrap();
+        assert_eq!(resps.len(), 2);
+        assert_eq!(resps[0].order_id, "100");
+        assert_eq!(resps[1].order_id, "101");
+    }
+
+    #[tokio::test]
+    async fn place_order_with_builder_wire_format() {
+        let (executor, transport) = test_executor_capturing(vec![ok_resting_response(1)]);
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        executor
+            .place_order_with_builder(
+                order,
+                Some(("0x000000000000000000000000000000000000007A", 10)),
+                None,
+            )
+            .await
+            .unwrap();
+        let action = transport.last_request().unwrap();
+        // Address lowercased; fee is a JSON integer (not a string).
+        assert_eq!(
+            action["builder"]["b"],
+            "0x000000000000000000000000000000000000007a"
+        );
+        assert_eq!(action["builder"]["f"].as_u64(), Some(10));
+        assert!(action["builder"]["f"].as_str().is_none());
+        // `builder` MUST be the last key (msgpack key order is signature-critical).
+        let keys: Vec<&String> = action.as_object().unwrap().keys().collect();
+        assert_eq!(keys, vec!["type", "orders", "grouping", "builder"]);
+    }
+
+    #[tokio::test]
+    async fn place_order_without_builder_omits_key() {
+        let (executor, transport) = test_executor_capturing(vec![ok_resting_response(1)]);
+        let order = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        executor.place_order(order, None).await.unwrap();
+        let action = transport.last_request().unwrap();
+        assert!(action.get("builder").is_none());
+        assert_eq!(action["grouping"], "na");
+    }
+
+    #[tokio::test]
+    async fn bulk_order_grouped_wire_format() {
+        let canned = serde_json::json!({
+            "status": "ok",
+            "response": {"type": "order", "data": {"statuses": [{"resting": {"oid": 1}}]}}
+        });
+        let (executor, transport) = test_executor_capturing(vec![canned]);
+        let parent = OrderWire::limit_buy(0, Decimal::from(90000), Decimal::from(1))
+            .build()
+            .unwrap();
+        executor
+            .bulk_order_grouped(vec![parent], Grouping::PositionTpsl, None)
+            .await
+            .unwrap();
+        let action = transport.last_request().unwrap();
+        assert_eq!(action["grouping"], "positionTpsl");
+        assert!(action.get("builder").is_none());
     }
 
     #[tokio::test]

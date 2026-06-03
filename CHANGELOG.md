@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+Parity features closing high-value gaps with the official Hyperliquid Python SDK.
+(If `0.2.0` has not yet been published, fold these into it; otherwise cut `0.3.0`.)
+
+### Added
+- **Builder codes**: `place_order_with_builder`, `bulk_order_with_builder`, and
+  `place_trigger_order_with_builder` attach a `(builder_address, fee)` to the order
+  action (`{"b","f"}`, fee in tenths of a basis point) so a builder earns the
+  configured fee. Pairs with the existing `approve_builder_fee`.
+- **Order grouping / OCO brackets**: `bulk_order_grouped(orders, Grouping, vault)`
+  plus a new `Grouping` enum (`Na` / `NormalTpsl` / `PositionTpsl`) to link a parent
+  entry with TP/SL children. `bulk_order` keeps its signature (delegates with `Na`).
+- **Vault withdrawals**: `vault_transfer(vault, is_deposit, amount)` with
+  `deposit_to_vault` / `withdraw_from_vault` wrappers — the vault transfer was
+  previously deposit-only.
+- **Info queries**: `frontend_open_orders` (richer order view with trigger
+  conditions, TP/SL metadata, and children — new `HlFrontendOpenOrder` type),
+  `order_status_by_cloid` (look up an order by client order id), and
+  `fills_by_time(address, start_ms, end_ms, aggregate_by_time)` (time-ranged fills).
+
+### Fixed
+- **Vault transfer amount encoding**: `transfer_to_vault` now sends `usd` as an
+  integer in micro-units (6 decimals) to match the `vaultTransfer` wire format;
+  previously it sent a whole-dollar string, which the exchange rejects.
+
 ## [0.2.0] - 2026-06-03
 
 Second release. Major expansion of the exchange-action and info-query surface (near-parity with the
