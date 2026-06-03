@@ -2,8 +2,9 @@ use rust_decimal::Decimal;
 
 use hl_types::{
     parse_str_decimal, HlAccountState, HlActiveAssetData, HlBorrowLendState, HlError, HlFill,
-    HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus,
-    HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry, TradeSide,
+    HlFrontendOpenOrder, HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition,
+    HlRateLimitStatus, HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees,
+    HlUserFundingEntry, TradeSide,
 };
 
 /// A small threshold used to detect zero-size (closed) positions.
@@ -325,6 +326,88 @@ pub(crate) fn parse_open_orders(resp: &serde_json::Value) -> Result<Vec<HlOpenOr
         ));
     }
     Ok(orders)
+}
+
+/// Parse a `frontendOpenOrders` JSON response into [`HlFrontendOpenOrder`]s.
+pub(crate) fn parse_frontend_open_orders(
+    resp: &serde_json::Value,
+) -> Result<Vec<HlFrontendOpenOrder>, HlError> {
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for frontendOpenOrders".into()))?;
+    let mut orders = Vec::with_capacity(arr.len());
+    for item in arr {
+        orders.push(parse_frontend_order(item)?);
+    }
+    Ok(orders)
+}
+
+/// Parse a single frontend order object (recursing into `children`).
+fn parse_frontend_order(item: &serde_json::Value) -> Result<HlFrontendOpenOrder, HlError> {
+    let (oid, coin, side, limit_px, sz, timestamp, order_type, cloid) =
+        parse_order_fields(item, "frontendOpenOrder")?;
+
+    // `origSz` defaults to the current size when absent; `triggerPx` to 0.
+    let orig_sz = match item.get("origSz") {
+        None | Some(serde_json::Value::Null) => sz,
+        some => parse_str_decimal(some, "origSz")?,
+    };
+    let trigger_px = match item.get("triggerPx") {
+        None | Some(serde_json::Value::Null) => Decimal::ZERO,
+        some => parse_str_decimal(some, "triggerPx")?,
+    };
+
+    let tif = item
+        .get("tif")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let reduce_only = item
+        .get("reduceOnly")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_trigger = item
+        .get("isTrigger")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_position_tpsl = item
+        .get("isPositionTpsl")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let trigger_condition = item
+        .get("triggerCondition")
+        .and_then(|v| v.as_str())
+        .unwrap_or("N/A")
+        .to_string();
+
+    let children = match item.get("children").and_then(|v| v.as_array()) {
+        Some(arr) => {
+            let mut c = Vec::with_capacity(arr.len());
+            for ch in arr {
+                c.push(parse_frontend_order(ch)?);
+            }
+            c
+        }
+        None => Vec::new(),
+    };
+
+    Ok(HlFrontendOpenOrder::new(
+        oid,
+        coin,
+        side,
+        limit_px,
+        sz,
+        orig_sz,
+        timestamp,
+        order_type,
+        tif,
+        reduce_only,
+        is_trigger,
+        is_position_tpsl,
+        trigger_condition,
+        trigger_px,
+        cloid,
+        children,
+    ))
 }
 
 /// Parse an `orderStatus` JSON response into an [`HlOrderDetail`].

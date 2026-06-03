@@ -136,6 +136,43 @@ impl fmt::Display for OrderStatus {
     }
 }
 
+/// Order grouping for a bulk `order` action.
+///
+/// Controls how the exchange links the orders in a single action. `Na` (the
+/// default) treats them as independent. `NormalTpsl` links a parent entry order
+/// (index 0) with its take-profit / stop-loss children as an OCO bracket;
+/// `PositionTpsl` attaches the TP/SL to the whole position.
+///
+/// Wire format: `"na"`, `"normalTpsl"`, `"positionTpsl"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum Grouping {
+    /// Independent orders (no bracket linkage).
+    #[default]
+    Na,
+    /// TP/SL bracket linked to a parent entry order (parent must be index 0).
+    NormalTpsl,
+    /// TP/SL attached to the whole position.
+    PositionTpsl,
+}
+
+impl Grouping {
+    /// The exact wire string for this grouping.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Grouping::Na => "na",
+            Grouping::NormalTpsl => "normalTpsl",
+            Grouping::PositionTpsl => "positionTpsl",
+        }
+    }
+}
+
+impl fmt::Display for Grouping {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// Wire format for an order sent to the Hyperliquid exchange.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -919,5 +956,14 @@ mod tests {
     fn invalid_tif_deserialization_fails() {
         assert!(serde_json::from_str::<Tif>("\"gtc\"").is_err());
         assert!(serde_json::from_str::<Tif>("\"GTC\"").is_err());
+    }
+
+    #[test]
+    fn grouping_as_str_matches_wire() {
+        assert_eq!(Grouping::Na.as_str(), "na");
+        assert_eq!(Grouping::NormalTpsl.as_str(), "normalTpsl");
+        assert_eq!(Grouping::PositionTpsl.as_str(), "positionTpsl");
+        assert_eq!(Grouping::default(), Grouping::Na);
+        assert_eq!(Grouping::NormalTpsl.to_string(), "normalTpsl");
     }
 }

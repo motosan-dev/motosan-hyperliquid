@@ -5,23 +5,77 @@ use hl_types::{HlActionResponse, HlError};
 use super::{validate_eth_address, OrderExecutor, SIGNATURE_CHAIN_ID};
 
 impl OrderExecutor {
+    /// Deposit USDC into or withdraw USDC from a vault.
+    ///
+    /// `is_deposit = true` deposits into the vault; `false` withdraws from it.
+    /// The `amount` is in USDC and is converted to an integer in micro-units
+    /// (6 decimals) on the wire — e.g. `50` becomes `50_000_000` — matching the
+    /// `vaultTransfer` action's `usd` field, which Hyperliquid expects as an
+    /// integer, not a string.
+    #[tracing::instrument(skip(self), fields(vault, is_deposit, amount = %amount))]
+    pub async fn vault_transfer(
+        &self,
+        vault: &str,
+        is_deposit: bool,
+        amount: Decimal,
+    ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(vault)?;
+        if amount <= Decimal::ZERO {
+            return Err(HlError::Validation(
+                "vault_transfer amount must be positive".into(),
+            ));
+        }
+        // `usd` is an integer in micro-units (6 decimals): 50 USD -> 50_000_000.
+        let micro = (amount * Decimal::from(1_000_000)).trunc();
+        let micro_u64: u64 = micro.to_string().parse().map_err(|e| {
+            HlError::Validation(format!(
+                "vault_transfer: amount {} converts to invalid micro-units: {e}",
+                amount
+            ))
+        })?;
+        let action = serde_json::json!({
+            "type": "vaultTransfer",
+            "vaultAddress": vault,
+            "isDeposit": is_deposit,
+            "usd": micro_u64,
+        });
+        let resp = self.send_signed_action(action, None).await?;
+        serde_json::from_value(resp)
+            .map_err(|e| HlError::Parse(format!("vault_transfer response: {e}")))
+    }
+
+    /// Deposit USDC into a vault. Convenience wrapper over [`Self::vault_transfer`].
+    #[tracing::instrument(skip(self), fields(vault, amount = %amount))]
+    pub async fn deposit_to_vault(
+        &self,
+        vault: &str,
+        amount: Decimal,
+    ) -> Result<HlActionResponse, HlError> {
+        self.vault_transfer(vault, true, amount).await
+    }
+
+    /// Withdraw USDC from a vault. Convenience wrapper over [`Self::vault_transfer`].
+    #[tracing::instrument(skip(self), fields(vault, amount = %amount))]
+    pub async fn withdraw_from_vault(
+        &self,
+        vault: &str,
+        amount: Decimal,
+    ) -> Result<HlActionResponse, HlError> {
+        self.vault_transfer(vault, false, amount).await
+    }
+
     /// Transfer USDC into a vault.
+    ///
+    /// Backward-compatible alias for [`Self::deposit_to_vault`]. Prefer
+    /// [`Self::vault_transfer`] / [`Self::withdraw_from_vault`] for explicit
+    /// direction.
     #[tracing::instrument(skip(self), fields(vault, amount = %amount))]
     pub async fn transfer_to_vault(
         &self,
         vault: &str,
         amount: Decimal,
     ) -> Result<HlActionResponse, HlError> {
-        validate_eth_address(vault)?;
-        let action = serde_json::json!({
-            "type": "vaultTransfer",
-            "vaultAddress": vault,
-            "isDeposit": true,
-            "usd": amount.to_string(),
-        });
-        let resp = self.send_signed_action(action, None).await?;
-        serde_json::from_value(resp)
-            .map_err(|e| HlError::Parse(format!("transfer_to_vault response: {e}")))
+        self.vault_transfer(vault, true, amount).await
     }
 
     /// Send USDC to another address on the Hyperliquid L1.
@@ -262,7 +316,7 @@ impl OrderExecutor {
 mod tests {
     use super::*;
 
-    use hl_test_utils::{ok_response, test_executor};
+    use hl_test_utils::{ok_response, test_executor, test_executor_capturing};
 
     #[tokio::test]
     async fn usdc_transfer_success() {
@@ -358,5 +412,103 @@ mod tests {
             .send_asset("not-an-address", "BTC", Decimal::from(1), None)
             .await;
         assert!(matches!(result, Err(HlError::InvalidAddress(_))));
+    }
+
+    #[tokio::test]
+    async fn vault_transfer_deposit_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .vault_transfer(
+                "0x0000000000000000000000000000000000000002",
+                true,
+                Decimal::from(50),
+            )
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().status, "ok");
+    }
+
+    #[tokio::test]
+    async fn vault_transfer_withdraw_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .vault_transfer(
+                "0x0000000000000000000000000000000000000002",
+                false,
+                Decimal::from(50),
+            )
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().status, "ok");
+    }
+
+    #[tokio::test]
+    async fn withdraw_from_vault_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .withdraw_from_vault(
+                "0x0000000000000000000000000000000000000002",
+                Decimal::from(10),
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn transfer_to_vault_still_deposits() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .transfer_to_vault(
+                "0x0000000000000000000000000000000000000002",
+                Decimal::from(10),
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn vault_transfer_rejects_invalid_address() {
+        let executor = test_executor(vec![]);
+        let result = executor
+            .vault_transfer("not-an-address", true, Decimal::from(5))
+            .await;
+        assert!(matches!(result, Err(HlError::InvalidAddress(_))));
+    }
+
+    #[tokio::test]
+    async fn vault_transfer_rejects_zero_amount() {
+        let executor = test_executor(vec![]);
+        let result = executor
+            .vault_transfer(
+                "0x0000000000000000000000000000000000000002",
+                true,
+                Decimal::ZERO,
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn vault_transfer_wire_format() {
+        let (executor, transport) = test_executor_capturing(vec![ok_response()]);
+        executor
+            .vault_transfer(
+                "0x0000000000000000000000000000000000000002",
+                false,
+                Decimal::from(50),
+            )
+            .await
+            .unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "vaultTransfer");
+        assert_eq!(
+            req["vaultAddress"],
+            "0x0000000000000000000000000000000000000002"
+        );
+        assert_eq!(req["isDeposit"], false);
+        // `usd` MUST be a JSON integer in micro-units (50 USD => 50_000_000),
+        // NOT a string — this is the bug the vault fix addressed.
+        assert_eq!(req["usd"].as_u64(), Some(50_000_000));
+        assert!(req["usd"].as_str().is_none());
     }
 }

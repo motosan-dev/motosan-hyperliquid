@@ -2,9 +2,9 @@ mod parse;
 
 pub(crate) use parse::{
     parse_account_state, parse_active_asset_data, parse_borrow_lend_state, parse_fills,
-    parse_funding_history, parse_historical_orders, parse_open_orders, parse_order_status,
-    parse_rate_limit_status, parse_referral_state, parse_spot_state, parse_staking_delegations,
-    parse_user_fees, parse_user_funding,
+    parse_frontend_open_orders, parse_funding_history, parse_historical_orders, parse_open_orders,
+    parse_order_status, parse_rate_limit_status, parse_referral_state, parse_spot_state,
+    parse_staking_delegations, parse_user_fees, parse_user_funding,
 };
 
 use std::sync::Arc;
@@ -12,9 +12,9 @@ use std::sync::Arc;
 use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
     HlAccountState, HlActiveAssetData, HlBorrowLendState, HlError, HlExtraAgent, HlFill,
-    HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus,
-    HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
-    HlVaultDetails, HlVaultSummary,
+    HlFrontendOpenOrder, HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition,
+    HlRateLimitStatus, HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees,
+    HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
 };
 
 /// Typed interface for Hyperliquid account state queries.
@@ -92,6 +92,32 @@ impl Account {
         parse_fills(&resp)
     }
 
+    /// Fetch fills within a time range, optionally aggregating partial fills
+    /// that share a timestamp.
+    ///
+    /// `start_ms`/`end_ms` are Unix epoch **milliseconds**; `end_ms = None`
+    /// leaves the upper bound open. Mirrors the Python SDK's `userFillsByTime`:
+    /// `startTime` and `aggregateByTime` are always sent, and `endTime` is sent
+    /// as JSON `null` when not provided.
+    #[tracing::instrument(skip(self))]
+    pub async fn fills_by_time(
+        &self,
+        address: &str,
+        start_ms: u64,
+        end_ms: Option<u64>,
+        aggregate_by_time: bool,
+    ) -> Result<Vec<HlFill>, HlError> {
+        let payload = serde_json::json!({
+            "type": "userFillsByTime",
+            "user": address,
+            "startTime": start_ms,
+            "endTime": end_ms,
+            "aggregateByTime": aggregate_by_time,
+        });
+        let resp = self.client.post_info(payload).await?;
+        parse_fills(&resp)
+    }
+
     /// Fetch vault summaries for an address.
     #[tracing::instrument(skip(self))]
     pub async fn vault_summaries(&self, address: &str) -> Result<Vec<HlVaultSummary>, HlError> {
@@ -161,10 +187,48 @@ impl Account {
         parse_open_orders(&resp)
     }
 
-    /// Fetch the status of a specific order.
+    /// Fetch open orders for an address with the richer "frontend" view —
+    /// trigger conditions, TP/SL bracket metadata, original size, and child
+    /// orders — as needed to manage existing stop/take-profit orders.
+    ///
+    /// `dex` scopes the query to a specific builder/HIP-3 DEX; `None` queries the
+    /// primary perp DEX (the empty-string default).
+    #[tracing::instrument(skip(self))]
+    pub async fn frontend_open_orders(
+        &self,
+        address: &str,
+        dex: Option<&str>,
+    ) -> Result<Vec<HlFrontendOpenOrder>, HlError> {
+        let payload = serde_json::json!({
+            "type": "frontendOpenOrders",
+            "user": address,
+            "dex": dex.unwrap_or(""),
+        });
+        let resp = self.client.post_info(payload).await?;
+        parse_frontend_open_orders(&resp)
+    }
+
+    /// Fetch the status of a specific order by its exchange order id (oid).
     #[tracing::instrument(skip(self))]
     pub async fn order_status(&self, address: &str, oid: u64) -> Result<HlOrderDetail, HlError> {
         let payload = serde_json::json!({"type": "orderStatus", "user": address, "oid": oid});
+        let resp = self.client.post_info(payload).await?;
+        parse_order_status(&resp)
+    }
+
+    /// Fetch the status of a specific order by its client order id (cloid).
+    ///
+    /// The `cloid` should be the canonical `0x`-prefixed, 32-hex-char client
+    /// order id. This uses the same `orderStatus` query as [`Self::order_status`]
+    /// — the cloid is sent under the same `oid` field but as a JSON string, which
+    /// is how the exchange distinguishes a cloid lookup from an oid lookup.
+    #[tracing::instrument(skip(self))]
+    pub async fn order_status_by_cloid(
+        &self,
+        address: &str,
+        cloid: &str,
+    ) -> Result<HlOrderDetail, HlError> {
+        let payload = serde_json::json!({"type": "orderStatus", "user": address, "oid": cloid});
         let resp = self.client.post_info(payload).await?;
         parse_order_status(&resp)
     }
@@ -356,5 +420,192 @@ mod tests {
 
         let result = account.states(&["0xabc"]).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn fills_by_time_parses_response() {
+        let mock_resp = serde_json::json!([
+            {"coin": "BTC", "px": "90000.0", "sz": "0.5", "side": "B", "time": 1_700_000_000_000u64, "fee": "1.2", "closedPnl": "0"},
+            {"coin": "ETH", "px": "3000.0", "sz": "2.0", "side": "A", "time": 1_700_000_050_000u64, "fee": "0.4", "closedPnl": "5"}
+        ]);
+        let transport = Arc::new(MockTransport::new(vec![mock_resp]));
+        let account = Account::new(transport);
+
+        let result = account
+            .fills_by_time("0xabc", 1_700_000_000_000, Some(1_700_000_100_000), false)
+            .await
+            .expect("fills_by_time should parse");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].coin, "BTC");
+        assert!(result[0].is_buy);
+        assert_eq!(result[1].coin, "ETH");
+        assert!(!result[1].is_buy);
+    }
+
+    #[tokio::test]
+    async fn fills_by_time_open_ended_and_empty() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!([])]));
+        let account = Account::new(transport);
+        let result = account
+            .fills_by_time("0xabc", 1_700_000_000_000, None, true)
+            .await
+            .expect("empty array should parse");
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fills_by_time_rejects_non_array() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!({"x": 1})]));
+        let account = Account::new(transport);
+        assert!(account
+            .fills_by_time("0xabc", 1, None, false)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn order_status_by_cloid_parses() {
+        let mock_resp = serde_json::json!({
+            "order": {
+                "oid": 555, "coin": "SOL", "side": "B", "limitPx": "150.0", "sz": "10.0",
+                "timestamp": 1_700_000_000_000u64, "orderType": "Limit",
+                "cloid": "0x00000000000000000000000000000001"
+            },
+            "status": "filled"
+        });
+        let transport = Arc::new(MockTransport::new(vec![mock_resp]));
+        let account = Account::new(transport);
+        let detail = account
+            .order_status_by_cloid("0xabc", "0x00000000000000000000000000000001")
+            .await
+            .expect("order_status_by_cloid should parse");
+        assert_eq!(detail.oid, 555);
+        assert_eq!(detail.coin, "SOL");
+    }
+
+    #[tokio::test]
+    async fn frontend_open_orders_parses_trigger_and_children() {
+        let mock_resp = serde_json::json!([
+            {
+                "oid": 1, "coin": "BTC", "side": "A", "limitPx": "0.0", "sz": "0.2",
+                "origSz": "0.2", "timestamp": 1_700_000_000_000u64,
+                "orderType": "Stop Market", "tif": null, "reduceOnly": true,
+                "isTrigger": true, "isPositionTpsl": false,
+                "triggerCondition": "Price below 60000", "triggerPx": "60000.0",
+                "children": []
+            },
+            {
+                "oid": 2, "coin": "ETH", "side": "B", "limitPx": "3000.0", "sz": "1.0",
+                "origSz": "1.0", "timestamp": 1_700_000_001_000u64,
+                "orderType": "Limit", "tif": "Gtc", "reduceOnly": false,
+                "isTrigger": false, "isPositionTpsl": true,
+                "triggerCondition": "N/A", "triggerPx": "0.0",
+                "children": [
+                    {
+                        "oid": 3, "coin": "ETH", "side": "A", "limitPx": "0.0", "sz": "1.0",
+                        "origSz": "1.0", "timestamp": 1_700_000_001_000u64,
+                        "orderType": "Take Profit Market", "tif": null, "reduceOnly": true,
+                        "isTrigger": true, "isPositionTpsl": true,
+                        "triggerCondition": "Price above 3500", "triggerPx": "3500.0"
+                    }
+                ]
+            }
+        ]);
+        let transport = Arc::new(MockTransport::new(vec![mock_resp]));
+        let account = Account::new(transport);
+        let orders = account
+            .frontend_open_orders("0xabc", None)
+            .await
+            .expect("frontend_open_orders should parse");
+        assert_eq!(orders.len(), 2);
+        // First: a trigger order with no children.
+        assert!(orders[0].is_trigger);
+        assert!(orders[0].reduce_only);
+        assert_eq!(orders[0].trigger_px, rust_decimal::Decimal::from(60000));
+        assert_eq!(orders[0].order_type, "Stop Market");
+        assert!(orders[0].tif.is_none());
+        assert!(orders[0].children.is_empty());
+        // Second: a position-TPSL parent with one recursive child.
+        assert!(!orders[1].is_trigger);
+        assert!(orders[1].is_position_tpsl);
+        assert_eq!(orders[1].tif.as_deref(), Some("Gtc"));
+        assert_eq!(orders[1].children.len(), 1);
+        assert!(orders[1].children[0].is_trigger);
+    }
+
+    #[tokio::test]
+    async fn frontend_open_orders_rejects_non_array() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!({"x": 1})]));
+        let account = Account::new(transport);
+        assert!(account.frontend_open_orders("0xabc", None).await.is_err());
+    }
+
+    // ── Outbound wire-format regression guards ─────────────────
+
+    #[tokio::test]
+    async fn order_status_wire_oid_is_number() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!({"status": "x"})]));
+        let account = Account::new(transport.clone());
+        let _ = account.order_status("0xabc", 555).await;
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "orderStatus");
+        assert_eq!(req["oid"].as_u64(), Some(555));
+        assert!(req["oid"].as_str().is_none());
+    }
+
+    #[tokio::test]
+    async fn order_status_by_cloid_wire_oid_is_string() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!({"status": "x"})]));
+        let account = Account::new(transport.clone());
+        let _ = account
+            .order_status_by_cloid("0xabc", "0x00000000000000000000000000000001")
+            .await;
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "orderStatus");
+        // cloid travels under the SAME `oid` key but as a JSON string, with no
+        // separate `cloid` key — that's how the exchange disambiguates.
+        assert_eq!(req["oid"], "0x00000000000000000000000000000001");
+        assert!(req["oid"].as_str().is_some());
+        assert!(req.get("cloid").is_none());
+    }
+
+    #[tokio::test]
+    async fn fills_by_time_wire_endtime_null_when_none() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!([])]));
+        let account = Account::new(transport.clone());
+        account
+            .fills_by_time("0xabc", 1_700_000_000_000, None, true)
+            .await
+            .unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "userFillsByTime");
+        assert_eq!(req["startTime"].as_u64(), Some(1_700_000_000_000));
+        // endTime is sent as null (not omitted); aggregateByTime always present.
+        assert!(req["endTime"].is_null());
+        assert_eq!(req["aggregateByTime"], true);
+    }
+
+    #[tokio::test]
+    async fn fills_by_time_wire_endtime_present_when_some() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!([])]));
+        let account = Account::new(transport.clone());
+        account
+            .fills_by_time("0xabc", 1, Some(2), false)
+            .await
+            .unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["endTime"].as_u64(), Some(2));
+        assert_eq!(req["aggregateByTime"], false);
+    }
+
+    #[tokio::test]
+    async fn frontend_open_orders_wire_keys() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!([])]));
+        let account = Account::new(transport.clone());
+        account.frontend_open_orders("0xabc", None).await.unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "frontendOpenOrders");
+        assert_eq!(req["user"], "0xabc");
+        assert_eq!(req["dex"], "");
     }
 }

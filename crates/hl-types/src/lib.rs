@@ -28,9 +28,10 @@ pub mod signature;
 pub mod util;
 
 pub use account::{
-    HlAccountState, HlActiveAssetData, HlBorrowLendState, HlExtraAgent, HlFill, HlFundingEntry,
-    HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition, HlRateLimitStatus, HlReferralState,
-    HlStakingDelegation, HlUserFees, HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
+    HlAccountState, HlActiveAssetData, HlBorrowLendState, HlExtraAgent, HlFill,
+    HlFrontendOpenOrder, HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition,
+    HlRateLimitStatus, HlReferralState, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
+    HlVaultDetails, HlVaultSummary,
 };
 pub use candle::HlCandle;
 pub use error::HlError;
@@ -39,8 +40,8 @@ pub use market::{
     HlSpotBalance, HlSpotMeta, HlTrade, SpotAssetContext, TradeSide,
 };
 pub use order::{
-    CancelByCloidRequest, CancelRequest, LimitOrderType, ModifyRequest, OrderStatus, OrderTypeWire,
-    OrderWire, OrderWireBuilder, PositionSide, Side, Tif, Tpsl, TriggerOrderType,
+    CancelByCloidRequest, CancelRequest, Grouping, LimitOrderType, ModifyRequest, OrderStatus,
+    OrderTypeWire, OrderWire, OrderWireBuilder, PositionSide, Side, Tif, Tpsl, TriggerOrderType,
 };
 pub use response::{HlActionResponse, OrderResponse};
 pub use rust_decimal::Decimal;

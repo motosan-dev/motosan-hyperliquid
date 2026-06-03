@@ -19,6 +19,10 @@ use std::sync::{Arc, Mutex};
 /// a transport that reports testnet.
 pub struct MockTransport {
     responses: Mutex<Vec<serde_json::Value>>,
+    /// Every request body sent through this transport, in order — the `info`
+    /// query JSON for `post_info` and the `action` JSON for `post_action`. Used
+    /// by tests to assert the exact outbound wire format.
+    requests: Mutex<Vec<serde_json::Value>>,
     mainnet: bool,
 }
 
@@ -27,6 +31,7 @@ impl MockTransport {
     pub fn new(responses: Vec<serde_json::Value>) -> Self {
         Self {
             responses: Mutex::new(responses),
+            requests: Mutex::new(Vec::new()),
             mainnet: true,
         }
     }
@@ -40,14 +45,26 @@ impl MockTransport {
     pub fn testnet(responses: Vec<serde_json::Value>) -> Self {
         Self {
             responses: Mutex::new(responses),
+            requests: Mutex::new(Vec::new()),
             mainnet: false,
         }
+    }
+
+    /// All request bodies captured so far, in send order.
+    pub fn requests(&self) -> Vec<serde_json::Value> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    /// The most recent request body, if any.
+    pub fn last_request(&self) -> Option<serde_json::Value> {
+        self.requests.lock().unwrap().last().cloned()
     }
 }
 
 #[async_trait]
 impl HttpTransport for MockTransport {
-    async fn post_info(&self, _request: serde_json::Value) -> Result<serde_json::Value, HlError> {
+    async fn post_info(&self, request: serde_json::Value) -> Result<serde_json::Value, HlError> {
+        self.requests.lock().unwrap().push(request);
         let mut queue = self.responses.lock().unwrap();
         if queue.is_empty() {
             return Err(HlError::http("no mock responses"));
@@ -57,11 +74,12 @@ impl HttpTransport for MockTransport {
 
     async fn post_action(
         &self,
-        _action: serde_json::Value,
+        action: serde_json::Value,
         _signature: &Signature,
         _nonce: u64,
         _vault_address: Option<&str>,
     ) -> Result<serde_json::Value, HlError> {
+        self.requests.lock().unwrap().push(action);
         let mut queue = self.responses.lock().unwrap();
         if queue.is_empty() {
             return Err(HlError::http("no mock responses"));
@@ -87,6 +105,14 @@ pub fn test_signer() -> Box<dyn hl_signing::Signer> {
 /// Create an [`OrderExecutor`] backed by a [`MockTransport`] with a pre-built
 /// asset-meta cache containing `BTC=0` and `ETH=1`.
 pub fn test_executor(responses: Vec<serde_json::Value>) -> OrderExecutor {
+    test_executor_capturing(responses).0
+}
+
+/// Like [`test_executor`] but also returns the [`MockTransport`] handle so tests
+/// can assert the exact outbound wire format via [`MockTransport::requests`].
+pub fn test_executor_capturing(
+    responses: Vec<serde_json::Value>,
+) -> (OrderExecutor, Arc<MockTransport>) {
     let mut name_to_idx = HashMap::new();
     name_to_idx.insert("BTC".to_string(), 0u32);
     name_to_idx.insert("ETH".to_string(), 1u32);
@@ -94,12 +120,14 @@ pub fn test_executor(responses: Vec<serde_json::Value>) -> OrderExecutor {
     name_to_sz.insert("BTC".to_string(), 5u32);
     name_to_sz.insert("ETH".to_string(), 4u32);
     let cache = AssetMetaCache::from_maps(name_to_idx, name_to_sz);
-    OrderExecutor::with_meta_cache(
-        Arc::new(MockTransport::new(responses)),
+    let transport = Arc::new(MockTransport::new(responses));
+    let executor = OrderExecutor::with_meta_cache(
+        transport.clone(),
         test_signer(),
         "0x0000000000000000000000000000000000000001".to_string(),
         cache,
-    )
+    );
+    (executor, transport)
 }
 
 /// Canned "ok" response suitable for action endpoints that return a generic

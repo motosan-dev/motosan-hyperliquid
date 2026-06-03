@@ -324,6 +324,89 @@ impl HlOpenOrder {
     }
 }
 
+/// An open order with the richer "frontend" metadata (trigger conditions,
+/// TP/SL bracket info, original size, children) returned by the
+/// `frontendOpenOrders` query — a superset of [`HlOpenOrder`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlFrontendOpenOrder {
+    /// Order ID.
+    pub oid: u64,
+    /// The coin/asset symbol.
+    pub coin: String,
+    /// Order side.
+    pub side: crate::market::TradeSide,
+    /// Limit price.
+    pub limit_px: Decimal,
+    /// Current remaining size.
+    pub sz: Decimal,
+    /// Original size when the order was placed.
+    pub orig_sz: Decimal,
+    /// Timestamp in milliseconds.
+    pub timestamp: u64,
+    /// Order type label (e.g. "Limit", "Stop Market", "Take Profit Limit").
+    pub order_type: String,
+    /// Time-in-force, if applicable (may be absent for trigger orders).
+    pub tif: Option<String>,
+    /// Whether this order only reduces an existing position.
+    pub reduce_only: bool,
+    /// Whether this is a trigger (stop/take-profit) order.
+    pub is_trigger: bool,
+    /// Whether this order is a position-level TP/SL.
+    pub is_position_tpsl: bool,
+    /// Human-readable trigger condition (e.g. "N/A" for non-trigger orders).
+    pub trigger_condition: String,
+    /// Trigger price (`0` for non-trigger orders).
+    pub trigger_px: Decimal,
+    /// Client order ID, if set.
+    pub cloid: Option<String>,
+    /// Child orders (e.g. the TP/SL legs of a bracket); empty when none.
+    pub children: Vec<HlFrontendOpenOrder>,
+}
+
+impl HlFrontendOpenOrder {
+    /// Creates a new `HlFrontendOpenOrder`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        oid: u64,
+        coin: String,
+        side: crate::market::TradeSide,
+        limit_px: Decimal,
+        sz: Decimal,
+        orig_sz: Decimal,
+        timestamp: u64,
+        order_type: String,
+        tif: Option<String>,
+        reduce_only: bool,
+        is_trigger: bool,
+        is_position_tpsl: bool,
+        trigger_condition: String,
+        trigger_px: Decimal,
+        cloid: Option<String>,
+        children: Vec<HlFrontendOpenOrder>,
+    ) -> Self {
+        Self {
+            oid,
+            coin,
+            side,
+            limit_px,
+            sz,
+            orig_sz,
+            timestamp,
+            order_type,
+            tif,
+            reduce_only,
+            is_trigger,
+            is_position_tpsl,
+            trigger_condition,
+            trigger_px,
+            cloid,
+            children,
+        }
+    }
+}
+
 /// Detailed status of a single order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
