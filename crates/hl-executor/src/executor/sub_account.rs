@@ -108,6 +108,40 @@ impl OrderExecutor {
 
         Self::check_and_parse_response(result, "subAccountTransfer")
     }
+
+    /// Transfer **spot tokens** between the master account and a sub-account.
+    ///
+    /// `is_deposit = true` moves tokens master → sub-account; `false` is the
+    /// reverse. `token` is the `"name:id"` token identifier (e.g. `"PURR:0x…"`),
+    /// passed through verbatim — not a perp coin symbol. `amount` is a decimal
+    /// quantity. This is an **L1-signed** action (unlike the USD-only
+    /// [`Self::sub_account_transfer`], which is EIP-712 user-signed).
+    #[tracing::instrument(skip(self))]
+    pub async fn sub_account_spot_transfer(
+        &self,
+        sub_account_user: &str,
+        is_deposit: bool,
+        token: &str,
+        amount: Decimal,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(sub_account_user)?;
+        if amount <= Decimal::ZERO {
+            return Err(HlError::Validation(
+                "sub_account_spot_transfer amount must be positive".into(),
+            ));
+        }
+        let action = serde_json::json!({
+            "type": "subAccountSpotTransfer",
+            "subAccountUser": sub_account_user,
+            "isDeposit": is_deposit,
+            "token": token,
+            "amount": amount.to_string(),
+        });
+        let resp = self.send_signed_action(action, vault).await?;
+        serde_json::from_value(resp)
+            .map_err(|e| HlError::Parse(format!("sub_account_spot_transfer response: {e}")))
+    }
 }
 
 #[cfg(test)]
@@ -167,5 +201,72 @@ mod tests {
             )
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn sub_account_spot_transfer_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .sub_account_spot_transfer(
+                "0x0000000000000000000000000000000000000005",
+                true,
+                "PURR:0xc1fb593aeffbeb02f85e0b7c0a3d8a2f55f4f9d4",
+                Decimal::from(10),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().status, "ok");
+    }
+
+    #[tokio::test]
+    async fn sub_account_spot_transfer_rejects_zero_amount() {
+        let executor = test_executor(vec![]);
+        let result = executor
+            .sub_account_spot_transfer(
+                "0x0000000000000000000000000000000000000005",
+                true,
+                "PURR:0xc1fb593aeffbeb02f85e0b7c0a3d8a2f55f4f9d4",
+                Decimal::ZERO,
+                None,
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn sub_account_spot_transfer_rejects_invalid_address() {
+        let executor = test_executor(vec![]);
+        let result = executor
+            .sub_account_spot_transfer("not-an-address", true, "PURR:0x", Decimal::from(1), None)
+            .await;
+        assert!(matches!(result, Err(HlError::InvalidAddress(_))));
+    }
+
+    #[tokio::test]
+    async fn sub_account_spot_transfer_wire_format() {
+        let (executor, transport) = hl_test_utils::test_executor_capturing(vec![ok_response()]);
+        executor
+            .sub_account_spot_transfer(
+                "0x0000000000000000000000000000000000000005",
+                false,
+                "PURR:0xabc",
+                Decimal::from(10),
+                None,
+            )
+            .await
+            .unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "subAccountSpotTransfer");
+        assert_eq!(
+            req["subAccountUser"],
+            "0x0000000000000000000000000000000000000005"
+        );
+        assert_eq!(req["isDeposit"], false);
+        assert_eq!(req["token"], "PURR:0xabc");
+        // amount is a decimal STRING, not a number; no `time` field (L1 action).
+        assert_eq!(req["amount"], "10");
+        assert!(req["amount"].is_string());
+        assert!(req.get("time").is_none());
     }
 }

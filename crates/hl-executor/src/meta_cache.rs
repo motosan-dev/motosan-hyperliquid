@@ -102,6 +102,20 @@ impl AssetMetaCache {
         self.coin_to_index.get(&coin.to_uppercase()).copied()
     }
 
+    /// Map a perp coin name to its asset index — a parity-named alias for
+    /// [`Self::asset_index`], provided so code ported from the Python SDK's
+    /// `Info.name_to_asset` finds a same-named method.
+    ///
+    /// This covers only the **perp subset** of Python's behavior: Python's
+    /// `name_to_asset` is unified over perps *and* spot (spot encoded as universe
+    /// index + 10000) and builder DEXes — those are **not** resolved here; use the
+    /// spot helpers for spot assets. Lookup is also case-insensitive (the name is
+    /// uppercased), an intentional ergonomics deviation from Python's exact-case
+    /// dictionary lookup.
+    pub fn name_to_asset(&self, name: &str) -> Option<u32> {
+        self.asset_index(name)
+    }
+
     /// Look up the size-decimal precision for a coin.
     pub fn sz_decimals(&self, coin: &str) -> Option<u32> {
         self.coin_to_sz_decimals.get(&coin.to_uppercase()).copied()
@@ -177,6 +191,16 @@ mod tests {
         assert_eq!(cache.asset_index("BTC"), Some(0));
         assert_eq!(cache.asset_index("ETH"), Some(1));
         assert_eq!(cache.asset_index("SOL"), Some(2));
+    }
+
+    #[test]
+    fn name_to_asset_aliases_asset_index() {
+        let cache = test_cache();
+        for coin in ["BTC", "ETH", "SOL", "btc", "DOGE", ""] {
+            assert_eq!(cache.name_to_asset(coin), cache.asset_index(coin));
+        }
+        assert_eq!(cache.name_to_asset("BTC"), Some(0));
+        assert_eq!(cache.name_to_asset("doge"), None);
     }
 
     #[test]

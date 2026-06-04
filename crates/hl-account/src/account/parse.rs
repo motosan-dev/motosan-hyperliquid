@@ -3,8 +3,8 @@ use rust_decimal::Decimal;
 use hl_types::{
     parse_str_decimal, HlAccountState, HlActiveAssetData, HlBorrowLendState, HlError, HlFill,
     HlFrontendOpenOrder, HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition,
-    HlRateLimitStatus, HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees,
-    HlUserFundingEntry, TradeSide,
+    HlRateLimitStatus, HlReferralState, HlSpotBalance, HlStakingDelegation, HlStakingReward,
+    HlStakingSummary, HlUserFees, HlUserFundingEntry, TradeSide,
 };
 
 /// A small threshold used to detect zero-size (closed) positions.
@@ -182,6 +182,52 @@ pub(crate) fn parse_staking_delegations(
     }
 
     Ok(delegations)
+}
+
+/// Parse a `delegatorSummary` JSON response into an [`HlStakingSummary`].
+pub(crate) fn parse_user_staking_summary(
+    resp: &serde_json::Value,
+) -> Result<HlStakingSummary, HlError> {
+    let delegated = parse_str_decimal(resp.get("delegated"), "delegated")?;
+    let undelegated = parse_str_decimal(resp.get("undelegated"), "undelegated")?;
+    let total_pending_withdrawal =
+        parse_str_decimal(resp.get("totalPendingWithdrawal"), "totalPendingWithdrawal")?;
+    let n_pending_withdrawals = resp
+        .get("nPendingWithdrawals")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| HlError::Parse("missing or invalid 'nPendingWithdrawals'".into()))?;
+    Ok(HlStakingSummary::new(
+        delegated,
+        undelegated,
+        total_pending_withdrawal,
+        n_pending_withdrawals,
+    ))
+}
+
+/// Parse a `delegatorRewards` JSON response into [`HlStakingReward`]s.
+pub(crate) fn parse_user_staking_rewards(
+    resp: &serde_json::Value,
+) -> Result<Vec<HlStakingReward>, HlError> {
+    let arr = resp
+        .as_array()
+        .ok_or_else(|| HlError::Parse("expected array for delegatorRewards".into()))?;
+
+    let mut rewards = Vec::with_capacity(arr.len());
+    for item in arr {
+        let time = item
+            .get("time")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| HlError::Parse("missing or invalid 'time' in delegatorReward".into()))?;
+        let source = item
+            .get("source")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| HlError::Parse("missing 'source' in delegatorReward".into()))?
+            .to_string();
+        let total_amount = parse_str_decimal(item.get("totalAmount"), "totalAmount")?;
+        rewards.push(HlStakingReward::new(time, source, total_amount));
+    }
+
+    Ok(rewards)
 }
 
 /// Parse borrow/lend state from a `spotClearinghouseState` JSON response.

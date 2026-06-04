@@ -30,8 +30,8 @@ pub mod util;
 pub use account::{
     HlAccountState, HlActiveAssetData, HlBorrowLendState, HlExtraAgent, HlFill,
     HlFrontendOpenOrder, HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition,
-    HlRateLimitStatus, HlReferralState, HlStakingDelegation, HlUserFees, HlUserFundingEntry,
-    HlVaultDetails, HlVaultSummary,
+    HlRateLimitStatus, HlReferralState, HlStakingDelegation, HlStakingReward, HlStakingSummary,
+    HlUserFees, HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
 };
 pub use candle::HlCandle;
 pub use error::HlError;

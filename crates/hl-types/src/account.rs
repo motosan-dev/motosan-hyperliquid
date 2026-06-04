@@ -248,6 +248,62 @@ impl HlStakingDelegation {
     }
 }
 
+/// A summary of an address's staking position (`delegatorSummary`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlStakingSummary {
+    /// Total amount currently delegated.
+    pub delegated: Decimal,
+    /// Total amount undelegated and available.
+    pub undelegated: Decimal,
+    /// Total amount pending withdrawal.
+    pub total_pending_withdrawal: Decimal,
+    /// Number of pending withdrawals.
+    pub n_pending_withdrawals: u64,
+}
+
+impl HlStakingSummary {
+    /// Creates a new `HlStakingSummary`.
+    pub fn new(
+        delegated: Decimal,
+        undelegated: Decimal,
+        total_pending_withdrawal: Decimal,
+        n_pending_withdrawals: u64,
+    ) -> Self {
+        Self {
+            delegated,
+            undelegated,
+            total_pending_withdrawal,
+            n_pending_withdrawals,
+        }
+    }
+}
+
+/// A single staking reward entry (`delegatorRewards`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct HlStakingReward {
+    /// Reward timestamp in milliseconds.
+    pub time: u64,
+    /// Reward source (e.g. `"delegation"`, `"commission"`).
+    pub source: String,
+    /// Total reward amount.
+    pub total_amount: Decimal,
+}
+
+impl HlStakingReward {
+    /// Creates a new `HlStakingReward`.
+    pub fn new(time: u64, source: String, total_amount: Decimal) -> Self {
+        Self {
+            time,
+            source,
+            total_amount,
+        }
+    }
+}
+
 /// Borrow/lend position.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
