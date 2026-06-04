@@ -28,6 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   protocol, and no longer embeds a `time` field that corrupted the action hash.
   The USD→micro-units encoding is unchanged. The previous form was rejected by
   the exchange; the public signature is unchanged.
+- **`OrderExecutor::class_transfer`** now uses the current `usdClassTransfer`
+  user-signed EIP-712 action (`amount` as a decimal string) instead of the
+  legacy `spotUser`/`classTransfer` L1 envelope, which the protocol retired
+  (2024-12) and the L1 no longer accepts. The public signature is unchanged
+  (`amount` is still USD dollars).
 
 ## [0.3.0] - 2026-06-04
 

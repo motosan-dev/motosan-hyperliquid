@@ -274,11 +274,14 @@ impl OrderExecutor {
         Self::check_and_parse_response(result, "sendAsset")
     }
 
-    /// Transfer funds between spot and perp accounts.
+    /// Transfer USDC between spot and perp accounts.
     ///
     /// When `to_perp` is `true`, funds move from spot to perp.
     /// When `to_perp` is `false`, funds move from perp to spot.
-    /// The `amount` is in USDC (will be converted to micro-units internally).
+    /// `amount` is in USDC (a decimal dollar amount, sent as a string).
+    ///
+    /// Uses the `usdClassTransfer` user-signed EIP-712 action — the legacy
+    /// `spotUser`/`classTransfer` L1 action was retired by the protocol.
     #[tracing::instrument(skip(self))]
     pub async fn class_transfer(
         &self,
@@ -291,24 +294,41 @@ impl OrderExecutor {
                 "class_transfer amount must be positive".into(),
             ));
         }
-        // Truncate to 6 decimal places (micro-units), then convert to integer
-        let micro = (amount * Decimal::from(1_000_000)).trunc();
-        let micro_u64: u64 = micro.to_string().parse().map_err(|e| {
-            HlError::Validation(format!(
-                "class_transfer: amount {} converts to invalid micro-units: {e}",
-                amount
-            ))
-        })?;
+        let chain = self.chain_name();
+        let nonce = self.next_nonce();
         let action = serde_json::json!({
-            "type": "spotUser",
-            "classTransfer": {
-                "usdc": micro_u64,
-                "toPerp": to_perp,
-            },
+            "type": "usdClassTransfer",
+            "hyperliquidChain": chain,
+            "signatureChainId": SIGNATURE_CHAIN_ID,
+            "amount": amount.to_string(),
+            "toPerp": to_perp,
+            "nonce": nonce,
         });
-        let resp = self.send_signed_action(action, vault).await?;
-        serde_json::from_value(resp)
-            .map_err(|e| HlError::Parse(format!("class_transfer response: {e}")))
+
+        // Type-field order must match the canonical USD_CLASS_TRANSFER_SIGN_TYPES
+        // (signatureChainId is on the action but not a signed field).
+        let types = vec![
+            hl_signing::EIP712Field::new("hyperliquidChain", "string"),
+            hl_signing::EIP712Field::new("amount", "string"),
+            hl_signing::EIP712Field::new("toPerp", "bool"),
+            hl_signing::EIP712Field::new("nonce", "uint64"),
+        ];
+
+        let signature = hl_signing::sign_user_signed_action(
+            self.signer.as_ref(),
+            &self.address,
+            &action,
+            &types,
+            "HyperliquidTransaction:UsdClassTransfer",
+            self.client.is_mainnet(),
+        )?;
+
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault, None)
+            .await?;
+
+        Self::check_and_parse_response(result, "usdClassTransfer")
     }
 }
 
@@ -373,6 +393,27 @@ mod tests {
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn class_transfer_wire_format_is_usd_class_transfer() {
+        let (executor, transport) = test_executor_capturing(vec![ok_response()]);
+        executor
+            .class_transfer(Decimal::from(10), false, None)
+            .await
+            .unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "usdClassTransfer");
+        // amount is a decimal STRING (dollars), not micro-units / not a number.
+        assert_eq!(req["amount"], "10");
+        assert!(req["amount"].is_string());
+        assert_eq!(req["toPerp"], false);
+        assert_eq!(req["signatureChainId"], "0x66eee");
+        // user-signed EIP-712 action: nonce field (named `nonce`), no legacy
+        // spotUser/classTransfer envelope.
+        assert!(req["nonce"].as_u64().is_some());
+        assert!(req.get("classTransfer").is_none());
+        assert!(req.get("usdc").is_none());
     }
 
     #[tokio::test]
