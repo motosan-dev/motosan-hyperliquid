@@ -314,13 +314,16 @@ impl Account {
         parse_historical_orders(&resp)
     }
 
-    /// Fetch staking delegations for an address.
+    /// Fetch the active staking delegations for an address.
+    ///
+    /// Each entry is `{validator, amount, lockedUntilTimestamp}`; the `rewards`
+    /// field of [`HlStakingDelegation`] is `0` unless the response carries it.
     #[tracing::instrument(skip(self))]
     pub async fn staking_delegations(
         &self,
         address: &str,
     ) -> Result<Vec<HlStakingDelegation>, HlError> {
-        let payload = serde_json::json!({ "type": "stakingDelegations", "user": address });
+        let payload = serde_json::json!({ "type": "delegations", "user": address });
         let resp = self.client.post_info(payload).await?;
         parse_staking_delegations(&resp)
     }

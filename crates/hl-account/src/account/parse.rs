@@ -157,7 +157,7 @@ pub(crate) fn parse_spot_state(resp: &serde_json::Value) -> Result<Vec<HlSpotBal
     Ok(balances)
 }
 
-/// Parse a `stakingDelegations` JSON response into a [`Vec<HlStakingDelegation>`].
+/// Parse a `delegations` JSON response into a [`Vec<HlStakingDelegation>`].
 ///
 /// Hyperliquid returns: `[{"validator": "0x...", "amount": "1000.0", "rewards": "5.0"}, ...]`
 pub(crate) fn parse_staking_delegations(
@@ -165,7 +165,7 @@ pub(crate) fn parse_staking_delegations(
 ) -> Result<Vec<HlStakingDelegation>, HlError> {
     let arr = resp
         .as_array()
-        .ok_or_else(|| HlError::Parse("expected array for stakingDelegations".into()))?;
+        .ok_or_else(|| HlError::Parse("expected array for delegations".into()))?;
 
     let mut delegations = Vec::with_capacity(arr.len());
     for item in arr {
@@ -177,8 +177,22 @@ pub(crate) fn parse_staking_delegations(
             }
         };
         let amount = parse_str_decimal(item.get("amount"), "amount")?;
-        let rewards = parse_str_decimal(item.get("rewards"), "rewards")?;
-        delegations.push(HlStakingDelegation::new(validator, amount, rewards));
+        let locked_until_timestamp = item
+            .get("lockedUntilTimestamp")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        // The `delegations` response does not carry `rewards`; default to 0 when
+        // absent (capture it if a future/variant response includes it).
+        let rewards = match item.get("rewards") {
+            None | Some(serde_json::Value::Null) => Decimal::ZERO,
+            some => parse_str_decimal(some, "rewards")?,
+        };
+        delegations.push(HlStakingDelegation::new(
+            validator,
+            amount,
+            locked_until_timestamp,
+            rewards,
+        ));
     }
 
     Ok(delegations)
@@ -941,18 +955,21 @@ mod tests {
 
     #[test]
     fn parse_staking_delegations_basic() {
+        // Shape of the live `delegations` response: validator/amount/lockedUntilTimestamp,
+        // no rewards field.
         let resp = serde_json::json!([
-            { "validator": "0xval1", "amount": "1000.0", "rewards": "5.0" },
-            { "validator": "0xval2", "amount": "2000.0", "rewards": "10.5" }
+            { "validator": "0xval1", "amount": "1000.0", "lockedUntilTimestamp": 1_700_000_000_000u64 },
+            { "validator": "0xval2", "amount": "2000.0", "lockedUntilTimestamp": 0 }
         ]);
         let delegations = parse_staking_delegations(&resp).unwrap();
         assert_eq!(delegations.len(), 2);
         assert_eq!(delegations[0].validator, "0xval1");
         assert_eq!(delegations[0].amount, Decimal::from_str("1000.0").unwrap());
-        assert_eq!(delegations[0].rewards, Decimal::from_str("5.0").unwrap());
+        assert_eq!(delegations[0].locked_until_timestamp, 1_700_000_000_000);
+        // rewards absent -> defaults to 0.
+        assert_eq!(delegations[0].rewards, Decimal::ZERO);
         assert_eq!(delegations[1].validator, "0xval2");
         assert_eq!(delegations[1].amount, Decimal::from_str("2000.0").unwrap());
-        assert_eq!(delegations[1].rewards, Decimal::from_str("10.5").unwrap());
     }
 
     #[test]
@@ -988,11 +1005,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_staking_delegations_missing_rewards_errors() {
+    fn parse_staking_delegations_defaults_missing_rewards() {
+        // The live `delegations` response has no `rewards` field; it must parse
+        // with rewards defaulting to 0 (previously this errored).
         let resp = serde_json::json!([
-            { "validator": "0xval1", "amount": "100.0" }
+            { "validator": "0xval1", "amount": "100.0", "lockedUntilTimestamp": 5 }
         ]);
-        assert!(parse_staking_delegations(&resp).is_err());
+        let delegations = parse_staking_delegations(&resp).unwrap();
+        assert_eq!(delegations.len(), 1);
+        assert_eq!(delegations[0].rewards, Decimal::ZERO);
+        assert_eq!(delegations[0].locked_until_timestamp, 5);
+    }
+
+    #[test]
+    fn parse_staking_delegations_captures_rewards_when_present() {
+        let resp = serde_json::json!([
+            { "validator": "0xval1", "amount": "100.0", "rewards": "2.5" }
+        ]);
+        let delegations = parse_staking_delegations(&resp).unwrap();
+        assert_eq!(delegations[0].rewards, Decimal::from_str("2.5").unwrap());
+        // lockedUntilTimestamp absent -> defaults to 0.
+        assert_eq!(delegations[0].locked_until_timestamp, 0);
     }
 
     #[test]

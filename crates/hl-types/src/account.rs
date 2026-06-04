@@ -224,7 +224,7 @@ pub struct HlExtraAgent {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// A staking delegation.
+/// A staking delegation (one entry of the `delegations` query).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -233,16 +233,27 @@ pub struct HlStakingDelegation {
     pub validator: String,
     /// Amount delegated.
     pub amount: Decimal,
-    /// Pending rewards.
+    /// Timestamp (ms) until which the delegation is locked.
+    #[serde(default)]
+    pub locked_until_timestamp: u64,
+    /// Pending rewards, if reported (the `delegations` response does not include
+    /// this field; defaults to `0`).
+    #[serde(default)]
     pub rewards: Decimal,
 }
 
 impl HlStakingDelegation {
     /// Creates a new `HlStakingDelegation`.
-    pub fn new(validator: String, amount: Decimal, rewards: Decimal) -> Self {
+    pub fn new(
+        validator: String,
+        amount: Decimal,
+        locked_until_timestamp: u64,
+        rewards: Decimal,
+    ) -> Self {
         Self {
             validator,
             amount,
+            locked_until_timestamp,
             rewards,
         }
     }
@@ -996,12 +1007,14 @@ mod tests {
         let delegation = HlStakingDelegation {
             validator: "0xval1".into(),
             amount: Decimal::from_str("1000.0").unwrap(),
+            locked_until_timestamp: 1_700_000_000_000,
             rewards: Decimal::from_str("5.25").unwrap(),
         };
         let json = serde_json::to_string(&delegation).unwrap();
         let parsed: HlStakingDelegation = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.validator, "0xval1");
         assert_eq!(parsed.amount, Decimal::from_str("1000.0").unwrap());
+        assert_eq!(parsed.locked_until_timestamp, 1_700_000_000_000);
         assert_eq!(parsed.rewards, Decimal::from_str("5.25").unwrap());
     }
 
