@@ -6,15 +6,15 @@ Rust workspace — all 7 published crates share one version and are released tog
 
 | Tag format | Example | Registry | Workflow |
 |------------|---------|----------|----------|
-| `rust-vX.Y.Z` | `rust-v0.3.0` | crates.io | `publish-rust.yml` |
+| `rust-vX.Y.Z` | `rust-v0.4.0` | crates.io | `publish-rust.yml` |
 
 ## Release Checklist
 
 ### 1. Version Bump
 
-File: `Cargo.toml` (workspace root) → `version = "X.Y.Z"`
+File: `Cargo.toml` (workspace root) → `workspace.package.version = "X.Y.Z"` and workspace dependency pins for the published crates.
 
-All crates inherit from `workspace.package.version`, so one change bumps everything.
+All crates inherit from `workspace.package.version`, so the package versions move together; keep the workspace dependency pins and `Cargo.lock` in sync.
 
 ### 2. Update CHANGELOG
 
@@ -36,6 +36,7 @@ All crates inherit from `workspace.package.version`, so one change bumps everyth
 ### 3. Update Version References
 
 - `README.md` — install section version numbers
+- crate-local docs (`crates/*/README.md`, facade doc comments) — version pins/code examples
 - `llms.txt` — header version line, Install section
 - `skills/motosan-hyperliquid/SKILL.md` — header version, Install section
 - `skills/motosan-hyperliquid/references/*.md` — version pins in `client.md`, plus any
@@ -44,7 +45,8 @@ All crates inherit from `workspace.package.version`, so one change bumps everyth
 ### 4. Commit
 
 ```bash
-git add Cargo.toml CHANGELOG.md README.md llms.txt CLAUDE.md \
+git add Cargo.toml Cargo.lock CHANGELOG.md README.md llms.txt CLAUDE.md \
+        crates/*/README.md crates/motosan-hyperliquid/src/lib.rs \
         skills/motosan-hyperliquid/SKILL.md skills/motosan-hyperliquid/references/
 git commit -m "chore: release rust-vX.Y.Z"
 ```

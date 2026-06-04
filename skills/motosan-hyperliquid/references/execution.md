@@ -156,9 +156,28 @@ executor.withdraw_from_vault(vault, Decimal::from(50)).await?;
 executor.vault_transfer(vault, false, Decimal::from(25)).await?;
 ```
 
-`vault_transfer` sends the `usd` field as integer micro-units (6 decimals), matching the exchange wire format. `transfer_to_vault` remains a backward-compatible alias for `deposit_to_vault`.
+`class_transfer` uses the current `usdClassTransfer` user-signed EIP-712 action (`amount` as a decimal string). `vault_transfer` sends the `usd` field as integer micro-units (6 decimals), matching the exchange wire format. `transfer_to_vault` remains a backward-compatible alias for `deposit_to_vault`.
 
-Admin/sub-account helpers include `update_leverage`, `update_isolated_margin`, `schedule_cancel`, `claim_rewards`, `approve_agent`, `approve_builder_fee`, `set_referrer`, and sub-account create/modify/transfer methods.
+Admin/sub-account helpers include `update_leverage`, `update_isolated_margin`, `schedule_cancel`, `claim_rewards`, `approve_agent`, `approve_builder_fee`, `set_referrer`, `token_delegate`, and sub-account create/modify/transfer methods.
+
+## Staking and Sub-Accounts
+
+```rust
+// Stake native tokens to a validator; wei is the raw base-unit amount.
+executor.token_delegate(validator, wei, false, None).await?;
+// Unstake from the validator.
+executor.token_delegate(validator, wei, true, None).await?;
+
+// USDC master <-> sub-account transfer; amount is encoded as micro-units on the wire.
+executor.sub_account_transfer(sub_account, true, Decimal::from(10), None).await?;
+
+// Spot token master <-> sub-account transfer; token is the Hyperliquid "name:id" token string.
+executor
+    .sub_account_spot_transfer(sub_account, true, "PURR:0x...", Decimal::from(1), None)
+    .await?;
+```
+
+`sub_account_transfer` and `sub_account_spot_transfer` are L1-signed actions matching the official SDK. `token_delegate` is a user-signed EIP-712 action (`HyperliquidTransaction:TokenDelegate`) and is not affected by `set_expires_after`.
 
 ## Action Expiry (Replay Protection)
 
@@ -177,7 +196,7 @@ executor.set_expires_after(None); // clear; default is no expiry
 
 The expiry timestamp is folded into the signed L1 action hash and sent in the `/exchange` body. It applies to L1 actions such as orders, cancels, leverage changes, and vault transfers.
 
-It does **not** apply to EIP-712 user-signed actions (`usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent/builder/sub-account actions), matching the official Python SDK.
+It does **not** apply to EIP-712 user-signed actions (`usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent/builder approval, `class_transfer`, `token_delegate`), matching the official Python SDK.
 
 ## Vault Parameter
 
@@ -194,6 +213,7 @@ The executor loads and caches exchange metadata on initialization:
 ```rust
 let cache = executor.meta_cache();
 let btc_idx = cache.asset_index("BTC");
+let py_alias = cache.name_to_asset("BTC"); // perp-only Python SDK parity alias
 let sz_dec = cache.sz_decimals("BTC");
 ```
 

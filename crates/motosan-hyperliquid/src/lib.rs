@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! motosan-hyperliquid = { version = "0.3.0", features = ["full"] }
+//! motosan-hyperliquid = { version = "0.4.0", features = ["full"] }
 //! ```
 //!
 //! Then import commonly used types via the prelude:

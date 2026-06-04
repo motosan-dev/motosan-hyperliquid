@@ -81,7 +81,7 @@ token.cancel(); // new requests fail and retry backoffs are interrupted
 ## WebSocket (feature: `ws`)
 
 ```toml
-hl-client = { version = "0.3.0", features = ["ws"] }
+hl-client = { version = "0.4.0", features = ["ws"] }
 ```
 
 Raw JSON:

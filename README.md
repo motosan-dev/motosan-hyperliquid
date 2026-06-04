@@ -4,9 +4,9 @@
 
 ## Status
 
-Latest published Rust release: **0.3.0** (MSRV **Rust 1.91+**).
+Latest published Rust release: **0.4.0** (MSRV **Rust 1.91+**).
 
-Release 0.3.0 adds builder-code order actions, OCO / TP-SL grouped bulk orders, vault withdrawals with correct micro-unit encoding, richer account queries (`frontend_open_orders`, `order_status_by_cloid`, `fills_by_time`), and L1 action expiry / replay protection with `OrderExecutor::set_expires_after(...)`.
+Release 0.4.0 adds staking delegation and staking-info queries, sub-account spot transfers and sub-account listing, portfolio reporting, and a Python-SDK-parity `AssetMetaCache::name_to_asset` alias. It also fixes live-wire compatibility for staking delegations, sub-account USDC transfers, and `class_transfer`.
 
 ## Why This Exists
 
@@ -30,25 +30,25 @@ Published release:
 
 ```toml
 [dependencies]
-motosan-hyperliquid = "0.3.0" # `full` feature enabled by default
+motosan-hyperliquid = "0.4.0" # `full` feature enabled by default
 ```
 
 Pick individual crates:
 
 ```toml
 [dependencies]
-hl-client   = "0.3.0"
-hl-market   = "0.3.0"
-hl-account  = "0.3.0"
-hl-signing  = "0.3.0"
-hl-executor = "0.3.0"
-hl-types    = "0.3.0"
+hl-client   = "0.4.0"
+hl-market   = "0.4.0"
+hl-account  = "0.4.0"
+hl-signing  = "0.4.0"
+hl-executor = "0.4.0"
+hl-types    = "0.4.0"
 ```
 
 Enable WebSocket support when using `hl-client` directly:
 
 ```toml
-hl-client = { version = "0.3.0", features = ["ws"] }
+hl-client = { version = "0.4.0", features = ["ws"] }
 ```
 
 ## Quick Start
@@ -119,7 +119,7 @@ executor.set_expires_after(None); // clear
 # Ok(()) }
 ```
 
-`expiresAfter` applies to L1 actions (orders, cancels, leverage, vault transfers, etc.). User-signed EIP-712 actions such as `usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent approval, builder approval, and sub-account actions are unaffected.
+`expiresAfter` applies to L1 actions (orders, cancels, leverage, vault transfers, sub-account transfers, etc.). User-signed EIP-712 actions such as `usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent/builder approval, `class_transfer`, and `token_delegate` are unaffected.
 
 ### Builder Codes and OCO Grouping
 
@@ -140,7 +140,7 @@ let _bracket = executor
 # Ok(()) }
 ```
 
-### Vault Transfers
+### Vault, Staking, and Sub-Account Transfers
 
 ```rust,no_run
 use rust_decimal::Decimal;
@@ -148,6 +148,14 @@ use rust_decimal::Decimal;
 # async fn example(executor: OrderExecutor) -> Result<(), Box<dyn std::error::Error>> {
 executor.deposit_to_vault("0xVaultAddress", Decimal::from(100)).await?;
 executor.withdraw_from_vault("0xVaultAddress", Decimal::from(50)).await?;
+
+// wei is the raw base-unit amount; `false` stakes, `true` unstakes.
+executor.token_delegate("0xValidatorAddress", 1_000_000, false, None).await?;
+
+// Spot token transfer between master and sub-account; token is "name:id".
+executor
+    .sub_account_spot_transfer("0xSubAccountAddress", true, "PURR:0x...", Decimal::from(1), None)
+    .await?;
 # Ok(()) }
 ```
 
@@ -166,6 +174,10 @@ let fills = account.fills(address).await?;
 let recent_fills = account.fills_by_time(address, 1_717_000_000_000, None, false).await?;
 let frontend_orders = account.frontend_open_orders(address, None).await?;
 let status = account.order_status_by_cloid(address, "0x0123456789abcdef0123456789abcdef").await?;
+let staking = account.user_staking_summary(address).await?;
+let rewards = account.user_staking_rewards(address).await?;
+let sub_accounts = account.query_sub_accounts(address).await?;
+let portfolio = account.portfolio(address).await?;
 # Ok(()) }
 ```
 

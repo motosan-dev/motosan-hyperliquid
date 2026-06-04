@@ -65,7 +65,7 @@ let response = client.post_action(
 Enable with `features = ["ws"]`:
 
 ```toml
-hl-client = { version = "0.3.0", features = ["ws"] }
+hl-client = { version = "0.4.0", features = ["ws"] }
 ```
 
 Raw subscription:

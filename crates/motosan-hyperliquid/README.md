@@ -8,16 +8,16 @@ Published release:
 
 ```toml
 [dependencies]
-motosan-hyperliquid = "0.3.0"
+motosan-hyperliquid = "0.4.0"
 ```
 
-Release 0.3.0 includes builder codes, OCO grouping, vault withdraw, frontend open orders, and action expiry.
+Release 0.4.0 includes staking delegation/query support, sub-account spot transfer and listing, portfolio reporting, `AssetMetaCache::name_to_asset`, and live-wire fixes for staking delegations, sub-account USDC transfer, and `class_transfer`.
 
 All features are enabled by default through `full`. To pick only what you need:
 
 ```toml
 [dependencies]
-motosan-hyperliquid = { version = "0.3.0", default-features = false, features = ["market", "account"] }
+motosan-hyperliquid = { version = "0.4.0", default-features = false, features = ["market", "account"] }
 ```
 
 ## Usage

@@ -2,7 +2,7 @@
 
 > Modular Rust SDK for the Hyperliquid L1 exchange — market data, account queries, EIP-712 signing, WebSocket feeds, and order execution.
 
-- Latest published Rust release: 0.3.0
+- Latest published Rust release: 0.4.0
 - MSRV: Rust 1.91+
 - GitHub: https://github.com/motosan-dev/motosan-hyperliquid
 - crates.io facade: https://crates.io/crates/motosan-hyperliquid
@@ -12,21 +12,21 @@
 
 ```toml
 # Facade crate (default `full` feature)
-motosan-hyperliquid = "0.3.0"
+motosan-hyperliquid = "0.4.0"
 
 # Or choose sub-crates
-hl-client   = "0.3.0"
-hl-types    = "0.3.0"
-hl-market   = "0.3.0"
-hl-account  = "0.3.0"
-hl-signing  = "0.3.0"
-hl-executor = "0.3.0"
+hl-client   = "0.4.0"
+hl-types    = "0.4.0"
+hl-market   = "0.4.0"
+hl-account  = "0.4.0"
+hl-signing  = "0.4.0"
+hl-executor = "0.4.0"
 
 # WebSocket when using hl-client directly
-hl-client = { version = "0.3.0", features = ["ws"] }
+hl-client = { version = "0.4.0", features = ["ws"] }
 ```
 
-Release 0.3.0 includes builder codes, OCO grouping, vault withdraw, frontend open orders, and action expiry.
+Release 0.4.0 includes staking delegation/query support, sub-account spot transfer and listing, portfolio reporting, `AssetMetaCache::name_to_asset`, and live-wire fixes for staking delegations, sub-account USDC transfer, and `class_transfer`.
 
 ## Crate Map
 
@@ -77,6 +77,10 @@ let fills_by_time = account.fills_by_time(address, start_ms, None, false).await?
 let open = account.open_orders(address).await?;
 let frontend = account.frontend_open_orders(address, None).await?;
 let status = account.order_status_by_cloid(address, cloid).await?;
+let staking = account.user_staking_summary(address).await?;
+let rewards = account.user_staking_rewards(address).await?;
+let sub_accounts = account.query_sub_accounts(address).await?;
+let portfolio = account.portfolio(address).await?;
 ```
 
 ## Order Execution
@@ -122,12 +126,16 @@ executor
     .bulk_order_grouped(vec![parent, take_profit, stop_loss], Grouping::NormalTpsl, None)
     .await?;
 
+// Staking and sub-account transfers.
+executor.token_delegate(validator, wei, false, None).await?;
+executor.sub_account_spot_transfer(sub_account, true, "PURR:0x...", amount, None).await?;
+
 // Vault transfer direction.
 executor.deposit_to_vault(vault, amount).await?;
 executor.withdraw_from_vault(vault, amount).await?;
 ```
 
-`set_expires_after` affects L1 actions only (orders/cancels/leverage/vault transfers). User-signed EIP-712 actions (`usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent/builder/sub-account) are unaffected.
+`set_expires_after` affects L1 actions only (orders/cancels/leverage/vault/sub-account transfers). User-signed EIP-712 actions (`usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent/builder approval, `class_transfer`, `token_delegate`) are unaffected.
 
 ## Release
 

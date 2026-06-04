@@ -94,10 +94,24 @@ let historical = account.historical_orders(address).await?;
 let fees = account.user_fees(address).await?;
 let rate_limit = account.rate_limit_status(address).await?;
 let staking = account.staking_delegations(address).await?;
+let staking_summary = account.user_staking_summary(address).await?;
+let staking_rewards = account.user_staking_rewards(address).await?;
+let staking_history_raw = account.delegator_history(address).await?;
 let referral = account.referral_state(address).await?;
 let active = account.active_asset_data(address, "BTC").await?;
 let borrow_lend = account.borrow_lend_state(address).await?;
 ```
+
+`staking_delegations` queries the live `delegations` info type. Each `HlStakingDelegation` includes `locked_until_timestamp`; `rewards` defaults to `0` because the current response normally omits it.
+
+## Sub-Accounts and Portfolio
+
+```rust
+let subs = account.query_sub_accounts(address).await?; // raw JSON array or null
+let portfolio = account.portfolio(address).await?; // raw account value / PnL / volume history
+```
+
+Both methods return raw JSON because the nested response schemas are heterogeneous and may evolve.
 
 ## Vaults and Agents
 

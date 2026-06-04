@@ -93,7 +93,7 @@ let signature = sign_user_signed_action(
 )?;
 ```
 
-User-signed actions (`usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent/builder/sub-account) use Hyperliquid's canonical EIP-712 domain with chain ID `421614` (`0x66eee`) for both mainnet and testnet.
+User-signed actions (`usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent/builder approval, `usdClassTransfer`, `tokenDelegate`) use Hyperliquid's canonical EIP-712 domain with chain ID `421614` (`0x66eee`) for both mainnet and testnet.
 
 ## Signature Type
 

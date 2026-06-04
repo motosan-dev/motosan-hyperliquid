@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-04
+
+Parity and correctness release for staking, sub-accounts, account reporting, and retired transfer wire formats.
+
 ### Added
 - **Staking**: `OrderExecutor::token_delegate(validator, wei, is_undelegate, vault)`
   (stake/unstake to a validator via the EIP-712 `tokenDelegate` action), plus read

@@ -5,30 +5,30 @@ description: Help developers use the motosan-hyperliquid SDK (Rust) — market d
 
 # motosan-hyperliquid SDK
 
-Modular Rust SDK for Hyperliquid L1 — latest published release **v0.3.0** (MSRV Rust 1.91+).
+Modular Rust SDK for Hyperliquid L1 — latest published release **v0.4.0** (MSRV Rust 1.91+).
 
 7 published crates: `hl-types`, `hl-signing`, `hl-client`, `hl-market`, `hl-account`, `hl-executor`, and the `motosan-hyperliquid` facade.
 
-Release 0.3.0 includes builder-code order actions, OCO / TP-SL grouped bulk orders, vault withdrawals, richer account queries (`frontend_open_orders`, `order_status_by_cloid`, `fills_by_time`), and action expiry via `OrderExecutor::set_expires_after`.
+Release 0.4.0 includes staking delegation/query support, sub-account spot transfer and listing, portfolio reporting, `AssetMetaCache::name_to_asset`, and live-wire fixes for staking delegations, sub-account USDC transfer, and `class_transfer`.
 
 ## Install
 
 ```toml
 # Option A — single facade crate (simplest)
 [dependencies]
-motosan-hyperliquid = "0.3.0" # all sub-crates via the `full` feature
+motosan-hyperliquid = "0.4.0" # all sub-crates via the `full` feature
 
 # Option B — pick crates
 [dependencies]
-hl-client   = "0.3.0" # HTTP + optional WebSocket
-hl-types    = "0.3.0" # shared domain types
-hl-market   = "0.3.0" # market data queries
-hl-account  = "0.3.0" # account state queries
-hl-signing  = "0.3.0" # EIP-712 signing
-hl-executor = "0.3.0" # order execution
+hl-client   = "0.4.0" # HTTP + optional WebSocket
+hl-types    = "0.4.0" # shared domain types
+hl-market   = "0.4.0" # market data queries
+hl-account  = "0.4.0" # account state queries
+hl-signing  = "0.4.0" # EIP-712 signing
+hl-executor = "0.4.0" # order execution
 
 # Enable WebSocket
-hl-client = { version = "0.3.0", features = ["ws"] }
+hl-client = { version = "0.4.0", features = ["ws"] }
 ```
 
 ## Architecture
@@ -73,6 +73,10 @@ executor
     .bulk_order_grouped(vec![parent, take_profit, stop_loss], Grouping::NormalTpsl, None)
     .await?;
 
+// Staking and sub-account transfer helpers.
+executor.token_delegate(validator, wei, false, None).await?;
+executor.sub_account_spot_transfer(sub_account, true, "PURR:0x...", amount, None).await?;
+
 // Explicit vault direction.
 executor.deposit_to_vault(vault, amount).await?;
 executor.withdraw_from_vault(vault, amount).await?;
@@ -84,8 +88,8 @@ executor.withdraw_from_vault(vault, amount).await?;
 |------|------|
 | Client setup, retry config, timeout config, WebSocket, action payload expiry | `references/client.md` |
 | Market data — candles, orderbook, funding, mid-price | `references/market.md` |
-| Account — positions, fills, frontend open orders, vaults, fees, funding | `references/account.md` |
-| Order execution — place/cancel, triggers, builders, OCO grouping, vault transfers, action expiry | `references/execution.md` |
+| Account — positions, fills, frontend open orders, staking, sub-accounts, portfolio, vaults, fees, funding | `references/account.md` |
+| Order execution — place/cancel, triggers, builders, OCO grouping, staking, sub-account/vault transfers, action expiry | `references/execution.md` |
 | EIP-712 signing — Signer trait, PrivateKeySigner, L1 expiry signing | `references/signing.md` |
 | Domain types — OrderWire, Grouping, HlError, account/order structs | `references/types.md` |
 | Release process, version bump, tag convention, CI | `references/release.md` |

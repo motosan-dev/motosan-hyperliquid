@@ -18,7 +18,8 @@ No network dependencies — pure data types, serde, decimal parsing, and the uni
 - `HlOpenOrder` — basic open order.
 - `HlFrontendOpenOrder` — richer frontend view: trigger flags/conditions, `orig_sz`, `reduce_only`, `is_position_tpsl`, children.
 - `HlOrderDetail`, `HlHistoricalOrder` — order status/history.
-- `HlVaultSummary`, `HlVaultDetails`, `HlUserFees`, `HlFundingEntry`, `HlUserFundingEntry`, `HlStakingDelegation`, etc.
+- `HlVaultSummary`, `HlVaultDetails`, `HlUserFees`, `HlFundingEntry`, `HlUserFundingEntry`, `HlStakingDelegation`, `HlStakingSummary`, `HlStakingReward`, etc.
+- `HlStakingDelegation` includes `locked_until_timestamp`; `rewards` defaults to `0` when omitted by the live `delegations` response.
 
 ## Order Types
 
