@@ -17,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **DX**: `AssetMetaCache::name_to_asset` — a perp-only parity alias for
   `asset_index`, matching the Python SDK's `Info.name_to_asset`.
 
+### Fixed
+- **`Account::staking_delegations`** now queries the correct info type
+  (`delegations`, was `stakingDelegations`) so it returns data from the live API.
+  `HlStakingDelegation` gains `locked_until_timestamp` (the documented field) and
+  no longer requires `rewards` (absent from the response — defaults to `0`).
+
 ## [0.3.0] - 2026-06-04
 
 Parity features closing high-value gaps with the official Hyperliquid Python SDK.
