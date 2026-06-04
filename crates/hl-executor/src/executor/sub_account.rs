@@ -46,13 +46,15 @@ impl OrderExecutor {
             .map_err(|e| HlError::Parse(format!("sub_account_modify response: {e}")))
     }
 
-    /// Transfer funds between the master account and a sub-account.
+    /// Transfer USDC between the master account and a sub-account.
     ///
     /// When `is_deposit` is `true`, funds move from master to sub-account.
     /// When `is_deposit` is `false`, funds move from sub-account to master.
-    /// The `amount` is in USDC (will be converted to micro-units internally).
+    /// The `amount` is in USDC and is converted to an integer in micro-units
+    /// (6 decimals) on the wire — e.g. `1` becomes `1_000_000`.
     ///
-    /// This is a user-signed EIP-712 action (like `usdc_transfer`).
+    /// This is an **L1-signed** action (matching the official SDK), like
+    /// [`Self::sub_account_spot_transfer`] — not an EIP-712 user-signed action.
     #[tracing::instrument(skip(self))]
     pub async fn sub_account_transfer(
         &self,
@@ -68,7 +70,7 @@ impl OrderExecutor {
             ));
         }
 
-        // Truncate to 6 decimal places (micro-units), then convert to integer
+        // `usd` is an integer in micro-units (6 decimals): 1 USD -> 1_000_000.
         let micro = (amount * Decimal::from(1_000_000)).trunc();
         let micro_u64: u64 = micro.to_string().parse().map_err(|e| {
             HlError::Validation(format!(
@@ -77,36 +79,17 @@ impl OrderExecutor {
             ))
         })?;
 
-        let nonce = self.next_nonce();
+        // L1 action: no `time`/`nonce` inside the action (it is folded into the
+        // action hash + outer envelope by send_signed_action).
         let action = serde_json::json!({
             "type": "subAccountTransfer",
             "subAccountUser": sub_account_user,
             "isDeposit": is_deposit,
             "usd": micro_u64,
-            "time": nonce,
         });
-
-        let types = vec![
-            hl_signing::EIP712Field::new("subAccountUser", "address"),
-            hl_signing::EIP712Field::new("isDeposit", "bool"),
-            hl_signing::EIP712Field::new("usd", "uint64"),
-        ];
-
-        let signature = hl_signing::sign_user_signed_action(
-            self.signer.as_ref(),
-            &self.address,
-            &action,
-            &types,
-            "HyperliquidTransaction:SubAccountTransfer",
-            self.client.is_mainnet(),
-        )?;
-
-        let result = self
-            .client
-            .post_action(action, &signature, nonce, vault, None)
-            .await?;
-
-        Self::check_and_parse_response(result, "subAccountTransfer")
+        let resp = self.send_signed_action(action, vault).await?;
+        serde_json::from_value(resp)
+            .map_err(|e| HlError::Parse(format!("sub_account_transfer response: {e}")))
     }
 
     /// Transfer **spot tokens** between the master account and a sub-account.
@@ -114,8 +97,8 @@ impl OrderExecutor {
     /// `is_deposit = true` moves tokens master → sub-account; `false` is the
     /// reverse. `token` is the `"name:id"` token identifier (e.g. `"PURR:0x…"`),
     /// passed through verbatim — not a perp coin symbol. `amount` is a decimal
-    /// quantity. This is an **L1-signed** action (unlike the USD-only
-    /// [`Self::sub_account_transfer`], which is EIP-712 user-signed).
+    /// quantity. Like [`Self::sub_account_transfer`], this is an **L1-signed**
+    /// action.
     #[tracing::instrument(skip(self))]
     pub async fn sub_account_spot_transfer(
         &self,
@@ -173,6 +156,33 @@ mod tests {
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp.status, "ok");
+    }
+
+    #[tokio::test]
+    async fn sub_account_transfer_wire_format_is_l1() {
+        let (executor, transport) = hl_test_utils::test_executor_capturing(vec![ok_response()]);
+        executor
+            .sub_account_transfer(
+                "0x0000000000000000000000000000000000000005",
+                false,
+                Decimal::from(1),
+                None,
+            )
+            .await
+            .unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "subAccountTransfer");
+        assert_eq!(
+            req["subAccountUser"],
+            "0x0000000000000000000000000000000000000005"
+        );
+        assert_eq!(req["isDeposit"], false);
+        // usd is a JSON integer in micro-units (1 USD -> 1_000_000), not a string.
+        assert_eq!(req["usd"].as_u64(), Some(1_000_000));
+        assert!(req["usd"].as_str().is_none());
+        // L1 action: NO `time`/`nonce` key inside the action (would corrupt the hash).
+        assert!(req.get("time").is_none());
+        assert!(req.get("nonce").is_none());
     }
 
     #[tokio::test]
