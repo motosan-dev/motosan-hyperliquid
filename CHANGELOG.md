@@ -22,6 +22,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (`delegations`, was `stakingDelegations`) so it returns data from the live API.
   `HlStakingDelegation` gains `locked_until_timestamp` (the documented field) and
   no longer requires `rewards` (absent from the response — defaults to `0`).
+- **`OrderExecutor::sub_account_transfer`** now signs `subAccountTransfer` as an
+  **L1 action** (matching the official SDK) instead of a bespoke EIP-712
+  `HyperliquidTransaction:SubAccountTransfer` form that never existed in the
+  protocol, and no longer embeds a `time` field that corrupted the action hash.
+  The USD→micro-units encoding is unchanged. The previous form was rejected by
+  the exchange; the public signature is unchanged.
 
 ## [0.3.0] - 2026-06-04
 

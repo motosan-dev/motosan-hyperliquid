@@ -251,3 +251,42 @@ async fn live_schedule_cancel() {
         assert!(resp2.is_ok(), "unschedule_cancel failed: {:?}", resp2.err());
     }
 }
+
+/// Confirms `sub_account_transfer` signs/serializes as an L1 action the live
+/// exchange accepts (it was previously an EIP-712 user-signed form that never
+/// existed in the official SDK and was rejected on-chain).
+///
+/// Requires `HYPERLIQUID_TESTNET_SUBACCOUNT` set to a sub-account address owned
+/// by the test wallet (the master must have ≥ $1 transferable). Skips if unset.
+#[tokio::test]
+#[ignore]
+async fn live_sub_account_transfer_round_trips() {
+    let sub = match std::env::var("HYPERLIQUID_TESTNET_SUBACCOUNT") {
+        Ok(s) if !s.is_empty() => s,
+        _ => {
+            eprintln!("skipping: set HYPERLIQUID_TESTNET_SUBACCOUNT to run this test");
+            return;
+        }
+    };
+    let (client, signer, address) = setup();
+    let executor = OrderExecutor::from_client(client, signer, address)
+        .await
+        .expect("executor construction failed");
+
+    // Deposit $1 into the sub-account, then withdraw it back.
+    let deposit = executor
+        .sub_account_transfer(&sub, true, Decimal::from(1), None)
+        .await;
+    assert!(
+        matches!(&deposit, Ok(r) if r.status == "ok"),
+        "sub_account_transfer deposit should be accepted by the exchange, got: {deposit:?}"
+    );
+
+    let withdraw = executor
+        .sub_account_transfer(&sub, false, Decimal::from(1), None)
+        .await;
+    assert!(
+        matches!(&withdraw, Ok(r) if r.status == "ok"),
+        "sub_account_transfer withdraw should be accepted, got: {withdraw:?}"
+    );
+}
