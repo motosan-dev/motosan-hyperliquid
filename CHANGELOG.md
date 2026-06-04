@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Staking**: `OrderExecutor::token_delegate(validator, wei, is_undelegate, vault)`
+  (stake/unstake to a validator via the EIP-712 `tokenDelegate` action), plus read
+  queries `Account::user_staking_summary` (`HlStakingSummary`),
+  `user_staking_rewards` (`Vec<HlStakingReward>`), and `delegator_history` (raw).
+- **Sub-accounts**: `OrderExecutor::sub_account_spot_transfer` (move spot tokens
+  to/from a sub-account; L1-signed) and `Account::query_sub_accounts` (raw).
+- **Account reporting**: `Account::portfolio` (account value / PnL / volume history, raw).
+- **DX**: `AssetMetaCache::name_to_asset` — a perp-only parity alias for
+  `asset_index`, matching the Python SDK's `Info.name_to_asset`.
+
 ## [0.3.0] - 2026-06-04
 
 Parity features closing high-value gaps with the official Hyperliquid Python SDK.

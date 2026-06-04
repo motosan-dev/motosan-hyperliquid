@@ -185,11 +185,133 @@ impl OrderExecutor {
         serde_json::from_value(result)
             .map_err(|e| HlError::Parse(format!("evm_user_modify response: {e}")))
     }
+
+    /// Delegate (stake) or undelegate (unstake) native tokens to a validator.
+    ///
+    /// `wei` is the **raw base-unit** amount (a `uint64`, not scaled to
+    /// micro-units). `is_undelegate = true` unstakes, `false` stakes. Uses
+    /// EIP-712 user-signed-action signing (`HyperliquidTransaction:TokenDelegate`).
+    #[tracing::instrument(skip(self))]
+    pub async fn token_delegate(
+        &self,
+        validator: &str,
+        wei: u64,
+        is_undelegate: bool,
+        vault: Option<&str>,
+    ) -> Result<HlActionResponse, HlError> {
+        validate_eth_address(validator)?;
+        let chain = self.chain_name();
+        let nonce = self.next_nonce();
+        let action = serde_json::json!({
+            "type": "tokenDelegate",
+            "hyperliquidChain": chain,
+            "signatureChainId": SIGNATURE_CHAIN_ID,
+            "validator": validator,
+            "wei": wei,
+            "isUndelegate": is_undelegate,
+            "nonce": nonce,
+        });
+
+        // Field order must match the canonical TOKEN_DELEGATE_TYPES.
+        let types = vec![
+            hl_signing::EIP712Field::new("hyperliquidChain", "string"),
+            hl_signing::EIP712Field::new("validator", "address"),
+            hl_signing::EIP712Field::new("wei", "uint64"),
+            hl_signing::EIP712Field::new("isUndelegate", "bool"),
+            hl_signing::EIP712Field::new("nonce", "uint64"),
+        ];
+
+        let signature = hl_signing::sign_user_signed_action(
+            self.signer.as_ref(),
+            &self.address,
+            &action,
+            &types,
+            "HyperliquidTransaction:TokenDelegate",
+            self.client.is_mainnet(),
+        )?;
+
+        let result = self
+            .client
+            .post_action(action, &signature, nonce, vault, None)
+            .await?;
+
+        Self::check_and_parse_response(result, "tokenDelegate")
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use hl_test_utils::{ok_response, test_executor};
+    use hl_test_utils::{ok_response, test_executor, test_executor_capturing};
+    use hl_types::HlError;
+
+    #[tokio::test]
+    async fn token_delegate_success() {
+        let executor = test_executor(vec![ok_response()]);
+        let result = executor
+            .token_delegate(
+                "0x0000000000000000000000000000000000000099",
+                1_000_000_000_000_000_000u64,
+                false,
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().status, "ok");
+    }
+
+    #[tokio::test]
+    async fn token_undelegate_success() {
+        let (executor, transport) = test_executor_capturing(vec![ok_response()]);
+        let result = executor
+            .token_delegate(
+                "0x0000000000000000000000000000000000000099",
+                100,
+                true,
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        // Lock in that the undelegate flag actually reaches the wire as `true`.
+        assert_eq!(transport.last_request().unwrap()["isUndelegate"], true);
+    }
+
+    #[tokio::test]
+    async fn token_delegate_rejects_invalid_validator() {
+        let executor = test_executor(vec![]);
+        let result = executor
+            .token_delegate("not-an-address", 100, false, None)
+            .await;
+        assert!(matches!(result, Err(HlError::InvalidAddress(_))));
+    }
+
+    #[tokio::test]
+    async fn token_delegate_wire_format() {
+        let (executor, transport) = test_executor_capturing(vec![ok_response()]);
+        executor
+            .token_delegate(
+                "0x0000000000000000000000000000000000000099",
+                42,
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "tokenDelegate");
+        assert_eq!(
+            req["validator"],
+            "0x0000000000000000000000000000000000000099"
+        );
+        // wei is a JSON integer (uint64), not a string.
+        assert_eq!(req["wei"].as_u64(), Some(42));
+        assert!(req["wei"].as_str().is_none());
+        assert_eq!(req["isUndelegate"], false);
+        assert_eq!(req["signatureChainId"], "0x66eee");
+        // test_executor's MockTransport defaults to mainnet.
+        assert_eq!(req["hyperliquidChain"], "Mainnet");
+        // The action `nonce` field is a u64 (matches the post nonce).
+        assert!(req["nonce"].as_u64().is_some());
+    }
 
     #[tokio::test]
     async fn approve_agent_success() {

@@ -4,7 +4,8 @@ pub(crate) use parse::{
     parse_account_state, parse_active_asset_data, parse_borrow_lend_state, parse_fills,
     parse_frontend_open_orders, parse_funding_history, parse_historical_orders, parse_open_orders,
     parse_order_status, parse_rate_limit_status, parse_referral_state, parse_spot_state,
-    parse_staking_delegations, parse_user_fees, parse_user_funding,
+    parse_staking_delegations, parse_user_fees, parse_user_funding, parse_user_staking_rewards,
+    parse_user_staking_summary,
 };
 
 use std::sync::Arc;
@@ -13,8 +14,8 @@ use hl_client::{HttpTransport, HyperliquidClient};
 use hl_types::{
     HlAccountState, HlActiveAssetData, HlBorrowLendState, HlError, HlExtraAgent, HlFill,
     HlFrontendOpenOrder, HlFundingEntry, HlHistoricalOrder, HlOpenOrder, HlOrderDetail, HlPosition,
-    HlRateLimitStatus, HlReferralState, HlSpotBalance, HlStakingDelegation, HlUserFees,
-    HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
+    HlRateLimitStatus, HlReferralState, HlSpotBalance, HlStakingDelegation, HlStakingReward,
+    HlStakingSummary, HlUserFees, HlUserFundingEntry, HlVaultDetails, HlVaultSummary,
 };
 
 /// Typed interface for Hyperliquid account state queries.
@@ -179,6 +180,29 @@ impl Account {
         self.client.post_info(payload).await
     }
 
+    /// List the sub-accounts under an address.
+    ///
+    /// Returns the raw JSON response — an array of sub-account objects
+    /// (`name`, `subAccountUser`, `master`, nested `clearinghouseState` /
+    /// `spotState`), or JSON `null` when the user has none. The nested state is
+    /// deeply nested and variable, so it is returned unparsed.
+    #[tracing::instrument(skip(self))]
+    pub async fn query_sub_accounts(&self, address: &str) -> Result<serde_json::Value, HlError> {
+        let payload = serde_json::json!({ "type": "subAccounts", "user": address });
+        self.client.post_info(payload).await
+    }
+
+    /// Fetch the account value / PnL / volume history for an address.
+    ///
+    /// Returns the raw JSON response — a heterogeneous array of
+    /// `[period_label, data]` pairs (e.g. `"day"`, `"week"`, `"allTime"`) whose
+    /// inner shape varies, so it is returned unparsed.
+    #[tracing::instrument(skip(self))]
+    pub async fn portfolio(&self, address: &str) -> Result<serde_json::Value, HlError> {
+        let payload = serde_json::json!({ "type": "portfolio", "user": address });
+        self.client.post_info(payload).await
+    }
+
     /// Fetch open orders for an address.
     #[tracing::instrument(skip(self))]
     pub async fn open_orders(&self, address: &str) -> Result<Vec<HlOpenOrder>, HlError> {
@@ -299,6 +323,37 @@ impl Account {
         let payload = serde_json::json!({ "type": "stakingDelegations", "user": address });
         let resp = self.client.post_info(payload).await?;
         parse_staking_delegations(&resp)
+    }
+
+    /// Fetch the staking summary for an address (`delegatorSummary`):
+    /// total delegated/undelegated and pending withdrawals.
+    #[tracing::instrument(skip(self))]
+    pub async fn user_staking_summary(&self, address: &str) -> Result<HlStakingSummary, HlError> {
+        let payload = serde_json::json!({ "type": "delegatorSummary", "user": address });
+        let resp = self.client.post_info(payload).await?;
+        parse_user_staking_summary(&resp)
+    }
+
+    /// Fetch the staking reward history for an address (`delegatorRewards`).
+    #[tracing::instrument(skip(self))]
+    pub async fn user_staking_rewards(
+        &self,
+        address: &str,
+    ) -> Result<Vec<HlStakingReward>, HlError> {
+        let payload = serde_json::json!({ "type": "delegatorRewards", "user": address });
+        let resp = self.client.post_info(payload).await?;
+        parse_user_staking_rewards(&resp)
+    }
+
+    /// Fetch the full delegation/undelegation history for an address
+    /// (`delegatorHistory`).
+    ///
+    /// Returns the raw JSON response — the event schema (timestamps, tx hashes,
+    /// delta details) is not yet stabilized, so it is returned unparsed.
+    #[tracing::instrument(skip(self))]
+    pub async fn delegator_history(&self, address: &str) -> Result<serde_json::Value, HlError> {
+        let payload = serde_json::json!({ "type": "delegatorHistory", "user": address });
+        self.client.post_info(payload).await
     }
 
     /// Fetch borrow/lend state for an address.
@@ -607,5 +662,123 @@ mod tests {
         assert_eq!(req["type"], "frontendOpenOrders");
         assert_eq!(req["user"], "0xabc");
         assert_eq!(req["dex"], "");
+    }
+
+    // ── P2 info queries ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn query_sub_accounts_returns_raw_array_and_wire() {
+        let resp = serde_json::json!([
+            {"name": "Test", "subAccountUser": "0x0356", "master": "0x8c96",
+             "clearinghouseState": {}, "spotState": {"balances": []}}
+        ]);
+        let transport = Arc::new(MockTransport::new(vec![resp]));
+        let account = Account::new(transport.clone());
+        let v = account.query_sub_accounts("0xabc").await.unwrap();
+        assert!(v.is_array());
+        assert_eq!(v[0]["subAccountUser"], "0x0356");
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "subAccounts");
+        assert_eq!(req["user"], "0xabc");
+    }
+
+    #[tokio::test]
+    async fn query_sub_accounts_handles_null() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::Value::Null]));
+        let account = Account::new(transport);
+        let v = account.query_sub_accounts("0xabc").await.unwrap();
+        assert!(v.is_null());
+    }
+
+    #[tokio::test]
+    async fn portfolio_returns_raw_value_and_wire() {
+        let resp = serde_json::json!([
+            ["day", {"accountValueHistory": [[1_700_000_000_000u64, "100.0"]], "pnlHistory": [], "vlm": "250.0"}]
+        ]);
+        let transport = Arc::new(MockTransport::new(vec![resp]));
+        let account = Account::new(transport.clone());
+        let v = account.portfolio("0xabc").await.unwrap();
+        assert_eq!(v[0][0], "day");
+        assert_eq!(v[0][1]["vlm"], "250.0");
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "portfolio");
+        assert_eq!(req["user"], "0xabc");
+        assert_eq!(req.as_object().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn user_staking_summary_parses() {
+        let resp = serde_json::json!({
+            "delegated": "1000.0", "undelegated": "50.0",
+            "totalPendingWithdrawal": "10.0", "nPendingWithdrawals": 2
+        });
+        let transport = Arc::new(MockTransport::new(vec![resp]));
+        let account = Account::new(transport.clone());
+        let s = account.user_staking_summary("0xabc").await.unwrap();
+        assert_eq!(s.delegated, rust_decimal::Decimal::from(1000));
+        assert_eq!(s.undelegated, rust_decimal::Decimal::from(50));
+        assert_eq!(s.n_pending_withdrawals, 2);
+        let req = transport.last_request().unwrap();
+        assert_eq!(req["type"], "delegatorSummary");
+    }
+
+    #[tokio::test]
+    async fn user_staking_rewards_parses_array() {
+        let resp = serde_json::json!([
+            {"time": 1_700_000_000_000u64, "source": "delegation", "totalAmount": "5.0"},
+            {"time": 1_700_000_050_000u64, "source": "commission", "totalAmount": "1.25"}
+        ]);
+        let transport = Arc::new(MockTransport::new(vec![resp]));
+        let account = Account::new(transport.clone());
+        let r = account.user_staking_rewards("0xabc").await.unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].source, "delegation");
+        assert_eq!(r[0].total_amount, rust_decimal::Decimal::from(5));
+        assert_eq!(r[1].time, 1_700_000_050_000);
+        assert_eq!(
+            transport.last_request().unwrap()["type"],
+            "delegatorRewards"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_staking_rewards_rejects_non_array() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!({"x": 1})]));
+        let account = Account::new(transport);
+        assert!(account.user_staking_rewards("0xabc").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn user_staking_rewards_empty_array() {
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!([])]));
+        let account = Account::new(transport);
+        assert!(account
+            .user_staking_rewards("0xabc")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_staking_summary_missing_field_errors() {
+        // No `delegated` field -> parse error.
+        let transport = Arc::new(MockTransport::new(vec![serde_json::json!({
+            "undelegated": "1.0", "totalPendingWithdrawal": "0.0", "nPendingWithdrawals": 0
+        })]));
+        let account = Account::new(transport);
+        assert!(account.user_staking_summary("0xabc").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delegator_history_returns_raw_value() {
+        let resp = serde_json::json!([{"time": 1, "hash": "0xabc", "delta": {}}]);
+        let transport = Arc::new(MockTransport::new(vec![resp.clone()]));
+        let account = Account::new(transport.clone());
+        let v = account.delegator_history("0xabc").await.unwrap();
+        assert_eq!(v, resp);
+        assert_eq!(
+            transport.last_request().unwrap()["type"],
+            "delegatorHistory"
+        );
     }
 }
