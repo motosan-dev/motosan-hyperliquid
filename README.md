@@ -1,34 +1,59 @@
 # motosan-hyperliquid
 
-> A modular Rust SDK for the Hyperliquid L1 exchange -- market data, account queries, EIP-712 signing, and order execution.
+> Modular Rust SDK for the Hyperliquid L1 exchange — market data, account queries, EIP-712 signing, WebSocket feeds, and order execution.
+
+## Status
+
+Latest published Rust release: **0.3.0** (MSRV **Rust 1.91+**).
+
+Release 0.3.0 adds builder-code order actions, OCO / TP-SL grouped bulk orders, vault withdrawals with correct micro-unit encoding, richer account queries (`frontend_open_orders`, `order_status_by_cloid`, `fills_by_time`), and L1 action expiry / replay protection with `OrderExecutor::set_expires_after(...)`.
 
 ## Why This Exists
 
-Hyperliquid's API returns string-encoded numerics, uses a custom EIP-712 signing scheme, and has undocumented edge cases in its wire format. This SDK handles all of that so you can focus on trading logic instead of protocol plumbing.
+Hyperliquid's API returns string-encoded numerics, uses custom EIP-712 signing, and has strict wire-format edge cases. This SDK handles numeric parsing, signing, rounding, idempotent client order IDs, retry/rate-limit behavior, and typed responses so trading code can focus on strategy.
 
 ## Crate Map
 
 | Crate | Description |
 |-------|-------------|
-| [`motosan-hyperliquid`](crates/motosan-hyperliquid/) | Facade -- re-exports all sub-crates behind feature flags (`market`, `account`, `executor`, `signing`, `ws`, `full`). Single-crate entry point. |
-| [`hl-types`](crates/hl-types/) | Shared domain types -- orders, positions, candles, errors, signatures |
-| [`hl-signing`](crates/hl-signing/) | EIP-712 signing via the `Signer` trait, with a built-in `PrivateKeySigner` |
-| [`hl-client`](crates/hl-client/) | HTTP client with automatic retry, rate-limit handling, and optional WebSocket support |
-| [`hl-market`](crates/hl-market/) | Market data queries -- candles, orderbook, funding rates, asset metadata |
-| [`hl-account`](crates/hl-account/) | Account state queries -- positions, fills, vaults, agent approvals |
-| [`hl-executor`](crates/hl-executor/) | Order execution -- place/cancel orders, trigger orders, position reconciliation |
+| [`motosan-hyperliquid`](crates/motosan-hyperliquid/) | Facade crate — re-exports the sub-crates behind feature flags (`market`, `account`, `executor`, `signing`, `ws`, `full`). |
+| [`hl-types`](crates/hl-types/) | Shared domain types — orders, positions, candles, errors, signatures, `Grouping`. |
+| [`hl-signing`](crates/hl-signing/) | EIP-712 signing via the `Signer` trait, `PrivateKeySigner`, L1 action signing with optional expiry. |
+| [`hl-client`](crates/hl-client/) | HTTP client with retry, rate limiting, concurrency gate, graceful shutdown, and optional WebSocket support. |
+| [`hl-market`](crates/hl-market/) | Market data queries — candles, orderbook, funding rates, asset metadata. |
+| [`hl-account`](crates/hl-account/) | Account state queries — positions, fills, open orders, vaults, fees, funding, staking, frontend order view. |
+| [`hl-executor`](crates/hl-executor/) | Execution — place/cancel/modify orders, trigger orders, grouped orders, spot, TWAP, transfers, admin actions. |
 
-## Quick Start
+## Installation
 
-Add the crates you need to your `Cargo.toml`:
+Published release:
 
 ```toml
 [dependencies]
-hl-client = { path = "sdks/motosan-hyperliquid/crates/hl-client" }
-hl-market = { path = "sdks/motosan-hyperliquid/crates/hl-market" }
+motosan-hyperliquid = "0.3.0" # `full` feature enabled by default
 ```
 
-Fetch the BTC orderbook in five lines:
+Pick individual crates:
+
+```toml
+[dependencies]
+hl-client   = "0.3.0"
+hl-market   = "0.3.0"
+hl-account  = "0.3.0"
+hl-signing  = "0.3.0"
+hl-executor = "0.3.0"
+hl-types    = "0.3.0"
+```
+
+Enable WebSocket support when using `hl-client` directly:
+
+```toml
+hl-client = { version = "0.3.0", features = ["ws"] }
+```
+
+## Quick Start
+
+Fetch the BTC orderbook:
 
 ```rust
 use hl_client::HyperliquidClient;
@@ -40,179 +65,114 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let market = MarketData::from_client(client);
 
     let book = market.orderbook("BTC").await?;
-    println!("Best bid: {:?}, Best ask: {:?}", book.bids[0], book.asks[0]);
+    println!("Best bid: {:?}, best ask: {:?}", book.bids[0], book.asks[0]);
     Ok(())
 }
 ```
 
-## Installation
+Place a limit order:
 
-**Prerequisites**: Rust 1.91+, Cargo
-
-This SDK is organized as a Cargo workspace. Each crate can be depended on individually:
-
-```toml
-# Market data only (read-only, no signing needed)
-hl-client = { path = "sdks/motosan-hyperliquid/crates/hl-client" }
-hl-market = { path = "sdks/motosan-hyperliquid/crates/hl-market" }
-
-# Account queries
-hl-account = { path = "sdks/motosan-hyperliquid/crates/hl-account" }
-
-# Full trading (signing + execution)
-hl-signing = { path = "sdks/motosan-hyperliquid/crates/hl-signing" }
-hl-executor = { path = "sdks/motosan-hyperliquid/crates/hl-executor" }
-```
-
-## Usage
-
-### Shared Client (Recommended)
-
-Create a single `HyperliquidClient` wrapped in `Arc` and share it across all consumers. This reuses one connection pool and avoids redundant TLS handshakes:
-
-```rust
-use std::sync::Arc;
-use hl_client::{HttpTransport, HyperliquidClient};
-use hl_market::MarketData;
-use hl_account::Account;
-
-let client = Arc::new(HyperliquidClient::mainnet()?);
-let transport: Arc<dyn HttpTransport> = client;
-
-let market = MarketData::new(transport.clone());
-let account = Account::new(transport.clone());
-
-// Both share the same underlying HTTP client
-let book = market.orderbook("BTC").await?;
-let state = account.state("0xYourAddress").await?;
-```
-
-Each consumer struct also provides a `from_client()` convenience constructor that wraps a `HyperliquidClient` in `Arc` for you. This is fine when you only need a single consumer:
-
-```rust
-let client = HyperliquidClient::mainnet()?;
-let market = MarketData::from_client(client); // wraps in Arc internally
-```
-
-### Query Market Data
-
-```rust
+```rust,no_run
 use hl_client::HyperliquidClient;
-use hl_market::MarketData;
-
-let client = HyperliquidClient::mainnet()?;
-let market = MarketData::from_client(client);
-
-// Fetch the last 10 hourly candles for ETH
-let candles = market.candles("ETH", "1h", 10).await?;
-for c in &candles {
-    println!("{}: O={} H={} L={} C={} V={}", c.timestamp, c.open, c.high, c.low, c.close, c.volume);
-}
-
-// Get the mid-price
-let mid = market.mid_price("BTC").await?;
-println!("BTC mid-price: {mid}");
-
-// Fetch funding rates for all perpetuals
-let rates = market.funding_rates().await?;
-```
-
-### Check Account State
-
-```rust
-use hl_client::HyperliquidClient;
-use hl_account::Account;
-
-let client = HyperliquidClient::mainnet()?;
-let account = Account::from_client(client);
-
-let state = account.state("0xYourAddress").await?;
-println!("Equity: {}, Margin available: {}", state.equity, state.margin_available);
-
-for pos in &state.positions {
-    println!("{}: size={} entry={} pnl={}", pos.coin, pos.size, pos.entry_px, pos.unrealized_pnl);
-}
-
-let fills = account.fills("0xYourAddress").await?;
-```
-
-### Place an Order
-
-```rust
-use hl_client::HyperliquidClient;
-use hl_signing::PrivateKeySigner;
 use hl_executor::OrderExecutor;
+use hl_signing::PrivateKeySigner;
 use hl_types::{OrderWire, Tif};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
 let client = HyperliquidClient::mainnet()?;
 let signer = PrivateKeySigner::from_hex("0xYourPrivateKey")?;
 let address = signer.address().to_string();
 
 let executor = OrderExecutor::from_client(client, Box::new(signer), address).await?;
+let btc_idx = executor.meta_cache().asset_index("BTC").expect("BTC in universe");
 
-// limit_buy takes Decimal args; build() validates price/size > 0.
-let order = OrderWire::limit_buy(0, Decimal::from_str("90000.0")?, Decimal::from_str("0.001")?) // BTC index
-    .tif(Tif::Gtc)
-    .cloid(HyperliquidClient::generate_cloid())
-    .build()?;
+let order = OrderWire::limit_buy(
+    btc_idx,
+    Decimal::from_str("90000.0")?,
+    Decimal::from_str("0.001")?,
+)
+.tif(Tif::Gtc)
+.cloid(HyperliquidClient::generate_cloid())
+.build()?;
 
 let response = executor.place_order(order, None).await?;
 println!("Order {}: status={}", response.order_id, response.status);
+# Ok(()) }
 ```
 
-### Configuration
+## Recent Execution Features
 
-#### Client Options
+### Action Expiry
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `is_mainnet` | `bool` | -- | Target mainnet (`true`) or testnet (`false`) |
-| `retry_config.max_retries` | `u32` | `3` | Maximum retry attempts on transient failures |
-| `retry_config.base_delay_ms` | `u64` | `500` | Base delay before first retry |
-| `retry_config.backoff_factor` | `u32` | `2` | Exponential backoff multiplier |
-| `timeout_config.request_timeout` | `Duration` | `30s` | Overall HTTP request timeout |
-| `timeout_config.connect_timeout` | `Duration` | `10s` | TCP connection timeout |
+Attach an `expiresAfter` unix epoch timestamp in milliseconds to subsequent L1 actions. The timestamp is included in the signed action hash and `/exchange` body.
 
-```rust
-use hl_client::{HyperliquidClient, RetryConfig, TimeoutConfig};
-use std::time::Duration;
-
-let client = HyperliquidClient::with_config(
-    true, // mainnet
-    RetryConfig { max_retries: 5, base_delay_ms: 1000, backoff_factor: 2 },
-    TimeoutConfig {
-        request_timeout: Duration::from_secs(60),
-        connect_timeout: Duration::from_secs(15),
-    },
-)?;
+```rust,no_run
+use std::time::{SystemTime, UNIX_EPOCH};
+# use hl_executor::OrderExecutor;
+# async fn example(executor: OrderExecutor) -> Result<(), Box<dyn std::error::Error>> {
+let now_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+executor.set_expires_after(Some(now_ms + 60_000)); // reject if processed after ~60s
+// executor.place_order(order, None).await?;
+executor.set_expires_after(None); // clear
+# Ok(()) }
 ```
 
-#### WebSocket (opt-in)
+`expiresAfter` applies to L1 actions (orders, cancels, leverage, vault transfers, etc.). User-signed EIP-712 actions such as `usdSend`, `withdraw3`, `spotSend`, `sendAsset`, agent approval, builder approval, and sub-account actions are unaffected.
 
-Enable the `ws` feature on `hl-client` for WebSocket support:
+### Builder Codes and OCO Grouping
 
-```toml
-hl-client = { path = "...", features = ["ws"] }
+```rust,no_run
+use hl_types::Grouping;
+# use hl_executor::OrderExecutor;
+# use hl_types::OrderWire;
+# async fn example(executor: OrderExecutor, parent: OrderWire, tp: OrderWire, sl: OrderWire) -> Result<(), Box<dyn std::error::Error>> {
+// Builder fee is in tenths of a basis point: 10 = 1 bp = 0.01%.
+let _resp = executor
+    .place_order_with_builder(parent.clone(), Some(("0x1111111111111111111111111111111111111111", 10)), None)
+    .await?;
+
+// Parent entry at index 0, followed by reduce-only TP/SL children.
+let _bracket = executor
+    .bulk_order_grouped(vec![parent, tp, sl], Grouping::NormalTpsl, None)
+    .await?;
+# Ok(()) }
 ```
 
-```rust
-use hl_client::HyperliquidWs;
+### Vault Transfers
 
-let mut ws = HyperliquidWs::mainnet();
-ws.connect().await?;
-ws.subscribe(serde_json::json!({"type": "l2Book", "coin": "BTC"})).await?;
+```rust,no_run
+use rust_decimal::Decimal;
+# use hl_executor::OrderExecutor;
+# async fn example(executor: OrderExecutor) -> Result<(), Box<dyn std::error::Error>> {
+executor.deposit_to_vault("0xVaultAddress", Decimal::from(100)).await?;
+executor.withdraw_from_vault("0xVaultAddress", Decimal::from(50)).await?;
+# Ok(()) }
+```
 
-while let Some(msg) = ws.next_message().await {
-    println!("{:?}", msg?);
-}
+## Account Queries
+
+```rust,no_run
+use hl_account::Account;
+use hl_client::HyperliquidClient;
+
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+let account = Account::from_client(HyperliquidClient::mainnet()?);
+let address = "0xYourAddress";
+
+let state = account.state(address).await?;
+let fills = account.fills(address).await?;
+let recent_fills = account.fills_by_time(address, 1_717_000_000_000, None, false).await?;
+let frontend_orders = account.frontend_open_orders(address, None).await?;
+let status = account.order_status_by_cloid(address, "0x0123456789abcdef0123456789abcdef").await?;
+# Ok(()) }
 ```
 
 ## Architecture
 
-```
-hl-types          (no dependencies -- pure data types)
+```text
+hl-types          (pure data types, no network deps)
     |
 hl-signing        (depends on hl-types)
     |
@@ -223,23 +183,23 @@ hl-market  hl-account   (depend on hl-client + hl-types)
     hl-executor          (depends on hl-client + hl-signing + hl-types)
 ```
 
-The dependency graph is intentionally layered. You can use `hl-market` for read-only market data without pulling in signing or execution dependencies.
+The dependency graph is intentionally layered: read-only market data does not pull in signing or execution.
 
 ## Error Handling
 
-All crates use `hl_types::HlError` as the unified error type:
+All crates use `hl_types::HlError`:
 
 | Variant | Retryable | Description |
 |---------|-----------|-------------|
-| `Http` | Yes | Network / connection failure |
+| `Http` / `Timeout` / `WebSocket` | Yes | Transport or timeout failure |
 | `RateLimited` | Yes | HTTP 429 with `retry_after_ms` |
 | `Api` | 5xx only | Non-success HTTP status |
 | `Signing` | No | EIP-712 signing failure |
 | `Serialization` | No | JSON / msgpack encoding error |
 | `InvalidAddress` | No | Malformed Ethereum address |
+| `Validation` / `Config` | No | Bad inputs or invalid client configuration |
 | `Parse` | No | Unexpected response format |
-
-The client's built-in retry logic handles retryable errors automatically. You can check `error.is_retryable()` for custom retry strategies.
+| `Rejected` | No | Exchange rejected an action |
 
 ## Examples
 
@@ -247,15 +207,16 @@ Runnable example programs live in [`examples/`](examples/):
 
 | File | Description |
 |------|-------------|
-| [`shared_client.rs`](examples/shared_client.rs) | Share one client across market data + account queries via `Arc` |
-| [`query_market.rs`](examples/query_market.rs) | Fetch candles and orderbook |
-| [`check_account.rs`](examples/check_account.rs) | Query positions and fills |
-| [`place_order.rs`](examples/place_order.rs) | Sign and submit a limit order |
+| [`shared_client.rs`](examples/shared_client.rs) | Share one client across market data + account queries via `Arc`. |
+| [`query_market.rs`](examples/query_market.rs) | Fetch candles and orderbook. |
+| [`check_account.rs`](examples/check_account.rs) | Query positions and fills. |
+| [`place_order.rs`](examples/place_order.rs) | Sign and submit a limit order. |
+| [`trigger_order.rs`](examples/trigger_order.rs) | Place stop-loss / take-profit trigger orders. |
+| [`ws_stream.rs`](examples/ws_stream.rs) | Typed WebSocket subscriptions. |
 
 Run an example:
 
 ```bash
-cd sdks/motosan-hyperliquid
 cargo run --example query_market
 ```
 

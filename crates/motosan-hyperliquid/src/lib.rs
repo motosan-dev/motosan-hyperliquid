@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! motosan-hyperliquid = { version = "0.1", features = ["full"] }
+//! motosan-hyperliquid = { version = "0.3.0", features = ["full"] }
 //! ```
 //!
 //! Then import commonly used types via the prelude:
@@ -53,11 +53,11 @@ pub use hl_client;
 #[cfg(feature = "market")]
 pub use hl_market;
 
-/// Account state queries (positions, fills, vaults, agent approvals).
+/// Account state queries (positions, fills, orders, vaults, fees, agent approvals).
 #[cfg(feature = "account")]
 pub use hl_account;
 
-/// Order execution (place/cancel, triggers, reconciliation).
+/// Order execution (place/cancel/modify, triggers, grouping, transfers, reconciliation).
 #[cfg(feature = "executor")]
 pub use hl_executor;
 

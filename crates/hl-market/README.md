@@ -13,7 +13,7 @@ use hl_client::HyperliquidClient;
 use hl_market::MarketData;
 
 let client = HyperliquidClient::mainnet()?;
-let market = MarketData::new(client);
+let market = MarketData::from_client(client);
 ```
 
 ### Candles

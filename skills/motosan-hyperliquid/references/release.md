@@ -6,7 +6,7 @@ Rust workspace — all 7 published crates share one version and are released tog
 
 | Tag format | Example | Registry | Workflow |
 |------------|---------|----------|----------|
-| `rust-vX.Y.Z` | `rust-v0.2.0` | crates.io | `publish-rust.yml` |
+| `rust-vX.Y.Z` | `rust-v0.3.0` | crates.io | `publish-rust.yml` |
 
 ## Release Checklist
 

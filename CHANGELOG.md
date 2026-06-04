@@ -6,8 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-04
+
 Parity features closing high-value gaps with the official Hyperliquid Python SDK.
-(If `0.2.0` has not yet been published, fold these into it; otherwise cut `0.3.0`.)
 
 ### Added
 - **Builder codes**: `place_order_with_builder`, `bulk_order_with_builder`, and

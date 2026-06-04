@@ -1,34 +1,37 @@
 # hl-client
 
-> Hyperliquid REST and WebSocket client with automatic retry, exponential backoff, and rate-limit handling.
+> Hyperliquid REST and WebSocket client with retry, exponential backoff, rate limiting, concurrency gating, and optional typed WebSocket support.
 
 ## Overview
 
-`hl-client` provides `HyperliquidClient` for REST API communication with the Hyperliquid exchange. It handles:
+`hl-client` provides `HyperliquidClient` for REST API communication with Hyperliquid. It handles:
 
-- **Automatic retry** with exponential backoff for transient failures (network errors, 5xx, 429)
-- **Rate-limit awareness** -- respects `Retry-After` headers on 429 responses
-- **Configurable timeouts** for both TCP connection and overall request duration
-- **Client order ID generation** (`generate_cloid`) for idempotent order submission
-
-An optional `ws` feature adds `HyperliquidWs` for WebSocket subscriptions with auto-reconnect and heartbeat.
+- automatic retry with exponential backoff for transient failures (network errors, 5xx, 429)
+- proactive token-bucket rate limiting and a concurrency gate
+- `Retry-After` handling for 429 responses
+- configurable request/connect timeouts
+- graceful shutdown via `CancellationToken`
+- client order ID generation (`generate_cloid`) for idempotent order submission
+- optional `ws` feature for typed WebSocket subscriptions
 
 ## Usage
 
 ### Create a Client
 
 ```rust
-use hl_client::HyperliquidClient;
+use hl_client::{HyperliquidClient, RateLimitConfig, RetryConfig, TimeoutConfig};
+use std::time::Duration;
 
-// Default configuration
 let client = HyperliquidClient::mainnet()?;
-let client = HyperliquidClient::testnet()?;
+let testnet = HyperliquidClient::testnet()?;
 
-// Custom retry config
-use hl_client::RetryConfig;
-let client = HyperliquidClient::with_retry_config(
+let custom = HyperliquidClient::with_config(
     true,
     RetryConfig { max_retries: 5, base_delay_ms: 1000, backoff_factor: 2 },
+    TimeoutConfig {
+        request_timeout: Duration::from_secs(60),
+        connect_timeout: Duration::from_secs(15),
+    },
 )?;
 ```
 
@@ -50,13 +53,22 @@ let response = client.post_action(
     action_json,
     &signature,
     nonce,
-    None, // vault_address
+    None,        // vault_address
+    expires_after, // Option<u64>, unix epoch ms; sent as `expiresAfter` when Some
 ).await?;
 ```
 
-### WebSocket (opt-in)
+`expires_after` must match the value included in the L1 signature hash (for example via `hl_signing::sign_l1_action_with_expiry`). `hl-executor` manages this automatically when using `OrderExecutor::set_expires_after`.
 
-Enable with `features = ["ws"]` in your `Cargo.toml`:
+## WebSocket (opt-in)
+
+Enable with `features = ["ws"]`:
+
+```toml
+hl-client = { version = "0.3.0", features = ["ws"] }
+```
+
+Raw subscription:
 
 ```rust
 use hl_client::HyperliquidWs;
@@ -66,29 +78,38 @@ ws.connect().await?;
 ws.subscribe(serde_json::json!({"type": "l2Book", "coin": "BTC"})).await?;
 
 while let Some(msg) = ws.next_message().await {
-    match msg {
-        Ok(data) => println!("{data}"),
-        Err(e) => eprintln!("Error: {e}"),
-    }
+    println!("{:?}", msg?);
 }
 ```
 
-The WebSocket client automatically:
-- Sends heartbeat pings every 30 seconds
-- Reconnects with exponential backoff and jitter on disconnection
-- Re-sends all subscriptions after reconnecting
+Typed subscription helpers:
+
+```rust
+use hl_client::{HyperliquidWs, Subscription};
+
+let mut ws = HyperliquidWs::mainnet();
+ws.connect().await?;
+ws.subscribe_typed(Subscription::L2Book { coin: "BTC".into() }).await?;
+
+while let Some(msg) = ws.next_typed_message().await {
+    println!("{:?}", msg?);
+}
+```
+
+The WebSocket client sends heartbeat pings, reconnects with exponential backoff and jitter, and re-sends subscriptions after reconnecting.
 
 ## Configuration
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `RetryConfig::max_retries` | `3` | Max retry attempts (excludes initial request) |
-| `RetryConfig::base_delay_ms` | `500` | Base delay before first retry |
-| `RetryConfig::backoff_factor` | `2` | Multiplier per retry (500ms, 1s, 2s, ...) |
-| `TimeoutConfig::request_timeout` | `30s` | Overall request timeout |
-| `TimeoutConfig::connect_timeout` | `10s` | TCP connection timeout |
+| `RetryConfig::max_retries` | `3` | Max retry attempts (excludes initial request). |
+| `RetryConfig::base_delay_ms` | `500` | Base delay before first retry. |
+| `RetryConfig::backoff_factor` | `2` | Multiplier per retry. |
+| `TimeoutConfig::request_timeout` | `30s` | Overall request timeout. |
+| `TimeoutConfig::connect_timeout` | `10s` | TCP connection timeout. |
+| `RateLimitConfig` | enabled defaults | Token-bucket rate limiter and concurrency gate. |
 
-Delay is capped at 30 seconds regardless of backoff factor.
+Constructors validate configs and return `HlError::Config` for invalid settings.
 
 ## License
 

@@ -5,16 +5,17 @@ use hl_client::HyperliquidClient;
 use hl_market::MarketData;
 
 let client = HyperliquidClient::mainnet()?;
-let market = MarketData::new(client);
+let market = MarketData::from_client(client);
 ```
+
+Use `MarketData::new(Arc<dyn HttpTransport>)` when sharing a transport.
 
 ## Orderbook
 
 ```rust
 let book = market.orderbook("BTC").await?;
-// book.bids: Vec<(f64, f64)> — (price, size)
-// book.asks: Vec<(f64, f64)>
-println!("Best bid: {:?}, Best ask: {:?}", book.bids[0], book.asks[0]);
+// book.bids / book.asks: Vec<(Decimal, Decimal)> — (price, size)
+println!("Best bid: {:?}, best ask: {:?}", book.bids[0], book.asks[0]);
 ```
 
 ## Mid-Price
@@ -33,14 +34,14 @@ for c in &candles {
 }
 ```
 
-Intervals: `"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"`
+Intervals: `"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"`.
 
 ## Funding Rates
 
 ```rust
 let rates = market.funding_rates().await?;
 for r in &rates {
-    println!("{}: rate={} next={}", r.coin, r.rate, r.next_funding_time);
+    println!("{}: rate={} next={}", r.coin, r.funding_rate, r.next_funding_time);
 }
 ```
 
@@ -48,9 +49,13 @@ for r in &rates {
 
 ```rust
 let assets = market.asset_info().await?;
-// Vec<HlAssetInfo> — symbol, asset_id, size_decimals, price_decimals, min_size
+for a in &assets {
+    println!("{}: id={} min={} sz_dec={} px_dec={}", a.coin, a.asset_id, a.min_size, a.sz_decimals, a.px_decimals);
+}
+
+let spot = market.spot_meta().await?;
 ```
 
 ## Coin Normalization
 
-All methods accept raw symbols. `"BTC-PERP"`, `"BTC-USDC"`, `"BTC"` all resolve to `"BTC"`.
+All methods accept raw symbols. `"BTC-PERP"`, `"BTC-USDC"`, and `"BTC"` normalize to `"BTC"`.
