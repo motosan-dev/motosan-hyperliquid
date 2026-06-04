@@ -290,3 +290,30 @@ async fn live_sub_account_transfer_round_trips() {
         "sub_account_transfer withdraw should be accepted, got: {withdraw:?}"
     );
 }
+
+/// Confirms `class_transfer` uses the current `usdClassTransfer` user-signed
+/// action the live exchange accepts (the previous `spotUser`/`classTransfer` L1
+/// form was retired by the protocol and rejected on-chain).
+///
+/// Requires the test wallet to have ≥ $1 transferable USDC. Moves $1 spot→perp
+/// then back perp→spot.
+#[tokio::test]
+#[ignore]
+async fn live_class_transfer_round_trips() {
+    let (client, signer, address) = setup();
+    let executor = OrderExecutor::from_client(client, signer, address)
+        .await
+        .expect("executor construction failed");
+
+    let to_perp = executor.class_transfer(Decimal::from(1), true, None).await;
+    assert!(
+        matches!(&to_perp, Ok(r) if r.status == "ok"),
+        "class_transfer spot->perp should be accepted by the exchange, got: {to_perp:?}"
+    );
+
+    let to_spot = executor.class_transfer(Decimal::from(1), false, None).await;
+    assert!(
+        matches!(&to_spot, Ok(r) if r.status == "ok"),
+        "class_transfer perp->spot should be accepted, got: {to_spot:?}"
+    );
+}
